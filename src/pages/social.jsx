@@ -2,1130 +2,1125 @@ import { useState } from "react";
 import * as XLSX from "xlsx";
 
 export default function SocialPage() {
-  const [file, setFile] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState(null);
-  const [dragging, setDragging] = useState(false);
-
-  // =========================================================
-  // NORMALISATION
-  // =========================================================
-
-  const normalize = (value) => {
-    return String(value ?? "")
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/\s+/g, " ");
-  };
-
-  // =========================================================
-  // RECHERCHE D'UNE COLONNE
-  // =========================================================
-
-  const findColumn = (columns, names) => {
-    for (const name of names) {
-      const found = columns.find(
-        (column) =>
-          normalize(column) === normalize(name)
-      );
-
-      if (found) {
-        return found;
-      }
-    }
-
-    return null;
-  };
-
-  // =========================================================
-  // CRÉER UN EXCEL
-  // =========================================================
-
-  const downloadExcel = (data, filename) => {
-    const worksheet = XLSX.utils.json_to_sheet(data);
-
-    // Largeur des colonnes
-    worksheet["!cols"] = [
-      { wch: 25 }, // nom
-      { wch: 25 }, // prénom
-      { wch: 16 }, // cin
-      { wch: 20 }, // téléphone
-      { wch: 28 }, // bureau de vote
-      { wch: 25 }, // parrain
-      { wch: 20 }, // service social
-    ];
-
-    const workbook = XLSX.utils.book_new();
-
-    XLSX.utils.book_append_sheet(
-      workbook,
-      worksheet,
-      "Électeurs"
-    );
-
-    XLSX.writeFile(
-      workbook,
-      filename
-    );
-  };
-
-  // =========================================================
-  // TRAITEMENT DU FICHIER
-  // =========================================================
-
-  const processFile = async (selectedFile) => {
-    if (!selectedFile) return;
-
-    setLoading(true);
-    setError("");
-    setResult(null);
-
-    try {
-      // -----------------------------------------------------
-      // Vérification extension
-      // -----------------------------------------------------
-
-      const fileName =
-        selectedFile.name.toLowerCase();
-
-      if (
-        !fileName.endsWith(".xlsx") &&
-        !fileName.endsWith(".xls") &&
-        !fileName.endsWith(".csv")
-      ) {
-        throw new Error(
-          "Veuillez sélectionner un fichier Excel (.xlsx, .xls ou .csv)."
-        );
-      }
-
-      // -----------------------------------------------------
-      // Lecture
-      // -----------------------------------------------------
-
-      const buffer =
-        await selectedFile.arrayBuffer();
-
-      const workbook = XLSX.read(buffer, {
-        type: "array",
-        cellDates: true,
-      });
-
-      if (!workbook.SheetNames.length) {
-        throw new Error(
-          "Le fichier ne contient aucune feuille."
-        );
-      }
-
-      // Première feuille
-      const sheetName =
-        workbook.SheetNames[0];
-
-      const worksheet =
-        workbook.Sheets[sheetName];
-
-      const rows =
-        XLSX.utils.sheet_to_json(
-          worksheet,
-          {
-            defval: "",
-            raw: false,
-          }
-        );
-
-      if (!rows.length) {
-        throw new Error(
-          "La feuille Excel est vide."
-        );
-      }
-
-      // -----------------------------------------------------
-      // Colonnes présentes
-      // -----------------------------------------------------
-
-      const columns =
-        Object.keys(rows[0]);
-
-      // -----------------------------------------------------
-      // Détection des colonnes
-      // -----------------------------------------------------
-
-      const nomColumn = findColumn(
-        columns,
-        [
-          "Nom",
-          "nom",
-        ]
-      );
-
-      const prenomColumn = findColumn(
-        columns,
-        [
-          "Prénom",
-          "Prenom",
-          "prénom",
-          "prenom",
-        ]
-      );
-
-      const cinColumn = findColumn(
-        columns,
-        [
-          "numeroCIN",
-          "Numéro CIN",
-          "Numero CIN",
-          "numero CIN",
-          "CIN",
-          "cin",
-        ]
-      );
-
-      const telephoneColumn = findColumn(
-        columns,
-        [
-          "Téléphone",
-          "Telephone",
-          "telephone",
-          "Tel",
-          "tel",
-          "Téléphone mobile",
-        ]
-      );
-
-      const bureauColumn = findColumn(
-        columns,
-        [
-          "Bureau de vote",
-          "Bureau vote",
-          "bureauVote",
-          "bureau vote",
-          "bureau de vote",
-        ]
-      );
-
-      const parrainColumn = findColumn(
-        columns,
-        [
-          "Parrain",
-          "parrain",
-          "parrainNom",
-          "Parrain Nom",
-          "Nom parrain",
-        ]
-      );
-
-      const ajouteParColumn = findColumn(
-        columns,
-        [
-          "Ajouté par",
-          "Ajoute par",
-          "ajoutePar",
-          "Ajout par",
-          "ajouté par",
-          "ajoute par",
-        ]
-      );
-
-      // -----------------------------------------------------
-      // Vérification
-      // -----------------------------------------------------
-
-      const missing = [];
-
-      if (!nomColumn) {
-        missing.push("Nom");
-      }
-
-      if (!prenomColumn) {
-        missing.push("Prénom");
-      }
-
-      if (!cinColumn) {
-        missing.push(
-          "numeroCIN / CIN"
-        );
-      }
-
-      if (!telephoneColumn) {
-        missing.push("Téléphone");
-      }
-
-      if (!bureauColumn) {
-        missing.push(
-          "Bureau de vote"
-        );
-      }
-
-      if (!parrainColumn) {
-        missing.push("Parrain");
-      }
-
-      if (!ajouteParColumn) {
-        missing.push("Ajouté par");
-      }
-
-      if (missing.length > 0) {
-        throw new Error(
-          `Colonnes obligatoires introuvables :\n\n${missing.join(
-            "\n"
-          )}\n\nColonnes présentes dans votre fichier :\n${columns.join(
-            ", "
-          )}`
-        );
-      }
-
-      // =====================================================
-      // SÉPARATION ET SUPPRESSION DES DOUBLONS
-      // =====================================================
-
-      const khalidRows = [];
-      const otherRows = [];
-
-      // CIN déjà rencontrés
-      const khalidCins = new Set();
-      const otherCins = new Set();
-
-      let duplicatesKhalid = 0;
-      let duplicatesOther = 0;
-
-      rows.forEach((row) => {
-
-        // ---------------------------------------------------
-        // Qui a ajouté l'électeur ?
-        // ---------------------------------------------------
-
-        const ajoutePar =
-          normalize(
-            row[ajouteParColumn]
-          );
-
-        const isKhalid =
-          ajoutePar ===
-          normalize("Khalid Touzani");
-
-        // ---------------------------------------------------
-        // CIN
-        // ---------------------------------------------------
-
-        const cin =
-          String(
-            row[cinColumn] ?? ""
-          ).trim();
-
-        const normalizedCin =
-          normalize(cin);
-
-        // ---------------------------------------------------
-        // Construction de la ligne finale
-        // ---------------------------------------------------
-
-        const formattedRow = {
-          nom:
-            row[nomColumn] ?? "",
-
-          prénom:
-            row[prenomColumn] ?? "",
-
-          cin:
-            cin,
-
-          téléphone:
-            row[telephoneColumn] ?? "",
-
-          "bureau de vote":
-            row[bureauColumn] ?? "",
-
-          parrain:
-            row[parrainColumn] ?? "",
-
-          "service social":
-            isKhalid
-              ? "Moltaqa"
-              : "Social",
-        };
-
-        // ===================================================
-        // KHALID TOUZANI
-        // ===================================================
-
-        if (isKhalid) {
-
-          // Si le CIN est renseigné
-          // et déjà présent => doublon
-          if (
-            normalizedCin &&
-            khalidCins.has(
-              normalizedCin
-            )
-          ) {
-            duplicatesKhalid++;
-            return;
-          }
-
-          if (normalizedCin) {
-            khalidCins.add(
-              normalizedCin
+    const [file, setFile] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [result, setResult] = useState(null);
+    const [dragging, setDragging] = useState(false);
+
+    // =========================================================
+    // NORMALISATION
+    // =========================================================
+
+    const normalize = (value) => {
+        return String(value ?? "")
+            .trim()
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\s+/g, " ");
+    };
+
+    // =========================================================
+    // RECHERCHE D'UNE COLONNE
+    // =========================================================
+
+    const findColumn = (columns, names) => {
+        for (const name of names) {
+            const found = columns.find(
+                (column) =>
+                    normalize(column) === normalize(name)
             );
-          }
 
-          khalidRows.push(
-            formattedRow
-          );
-
-          return;
+            if (found) {
+                return found;
+            }
         }
 
-        // ===================================================
-        // AUTRES
-        // ===================================================
+        return null;
+    };
 
-        if (
-          normalizedCin &&
-          otherCins.has(
-            normalizedCin
-          )
-        ) {
-          duplicatesOther++;
-          return;
-        }
+    // =========================================================
+    // CRÉER UN EXCEL
+    // =========================================================
 
-        if (normalizedCin) {
-          otherCins.add(
-            normalizedCin
-          );
-        }
+    const downloadExcel = (data, filename) => {
+        const worksheet = XLSX.utils.json_to_sheet(data);
 
-        otherRows.push(
-          formattedRow
+        // Largeur des colonnes
+        worksheet["!cols"] = [
+            { wch: 25 }, // nom
+            { wch: 25 }, // prénom
+            { wch: 16 }, // cin
+            { wch: 20 }, // téléphone
+            { wch: 28 }, // bureau de vote
+            { wch: 25 }, // parrain
+            { wch: 20 }, // service social
+        ];
+
+        const workbook = XLSX.utils.book_new();
+
+        XLSX.utils.book_append_sheet(
+            workbook,
+            worksheet,
+            "Électeurs"
         );
-      });
 
-      // =====================================================
-      // RÉSULTAT
-      // =====================================================
+        XLSX.writeFile(
+            workbook,
+            filename
+        );
+    };
 
-      setFile(selectedFile);
+    // =========================================================
+    // TRAITEMENT DU FICHIER
+    // =========================================================
 
-      setResult({
-        total: rows.length,
+    const processFile = async (selectedFile) => {
+        if (!selectedFile) return;
 
-        khalid: khalidRows,
+        setLoading(true);
+        setError("");
+        setResult(null);
 
-        other: otherRows,
+        try {
+            // -----------------------------------------------------
+            // Vérification extension
+            // -----------------------------------------------------
 
-        duplicatesKhalid,
+            const fileName =
+                selectedFile.name.toLowerCase();
 
-        duplicatesOther,
+            if (
+                !fileName.endsWith(".xlsx") &&
+                !fileName.endsWith(".xls") &&
+                !fileName.endsWith(".csv")
+            ) {
+                throw new Error(
+                    "Veuillez sélectionner un fichier Excel (.xlsx, .xls ou .csv)."
+                );
+            }
 
-        totalDuplicates:
-          duplicatesKhalid +
-          duplicatesOther,
+            // -----------------------------------------------------
+            // Lecture
+            // -----------------------------------------------------
 
-        sheetName,
+            const buffer =
+                await selectedFile.arrayBuffer();
 
-        columns: {
-          nom: nomColumn,
-          prenom: prenomColumn,
-          cin: cinColumn,
-          telephone:
-            telephoneColumn,
-          bureau:
-            bureauColumn,
-          parrain:
-            parrainColumn,
-          ajoutePar:
-            ajouteParColumn,
-        },
-      });
+            const workbook = XLSX.read(buffer, {
+                type: "array",
+                cellDates: true,
+            });
 
-    } catch (err) {
-      console.error(err);
+            if (!workbook.SheetNames.length) {
+                throw new Error(
+                    "Le fichier ne contient aucune feuille."
+                );
+            }
 
-      setError(
-        err.message ||
-          "Une erreur est survenue lors du traitement du fichier."
-      );
+            // Première feuille
+            const sheetName =
+                workbook.SheetNames[0];
 
-      setFile(null);
+            const worksheet =
+                workbook.Sheets[sheetName];
 
-    } finally {
-      setLoading(false);
-    }
-  };
+            const rows =
+                XLSX.utils.sheet_to_json(
+                    worksheet,
+                    {
+                        defval: "",
+                        raw: false,
+                    }
+                );
 
-  // =========================================================
-  // TÉLÉCHARGER KHALID
-  // =========================================================
+            if (!rows.length) {
+                throw new Error(
+                    "La feuille Excel est vide."
+                );
+            }
 
-  const downloadKhalid = () => {
-    if (!result) return;
+            // -----------------------------------------------------
+            // Colonnes présentes
+            // -----------------------------------------------------
 
-    downloadExcel(
-      result.khalid,
-      "electeurs_Khalid_Touzani.xlsx"
-    );
-  };
+            const columns =
+                Object.keys(rows[0]);
 
-  // =========================================================
-  // TÉLÉCHARGER AUTRES
-  // =========================================================
+            // -----------------------------------------------------
+            // Détection des colonnes
+            // -----------------------------------------------------
 
-  const downloadOther = () => {
-    if (!result) return;
+            const nomColumn = findColumn(
+                columns,
+                [
+                    "Nom",
+                    "nom",
+                ]
+            );
 
-    downloadExcel(
-      result.other,
-      "electeurs_autres.xlsx"
-    );
-  };
+            const prenomColumn = findColumn(
+                columns,
+                [
+                    "Prénom",
+                    "Prenom",
+                    "prénom",
+                    "prenom",
+                ]
+            );
 
-  // =========================================================
-  // TÉLÉCHARGER LES DEUX
-  // =========================================================
+            const cinColumn = findColumn(
+                columns,
+                [
+                    "numeroCIN",
+                    "Numéro CIN",
+                    "Numero CIN",
+                    "numero CIN",
+                    "CIN",
+                    "cin",
+                ]
+            );
 
-  const downloadBoth = () => {
-    if (!result) return;
+            const telephoneColumn = findColumn(
+                columns,
+                [
+                    "Téléphone",
+                    "Telephone",
+                    "telephone",
+                    "Tel",
+                    "tel",
+                    "Téléphone mobile",
+                ]
+            );
 
-    downloadExcel(
-      result.khalid,
-      "electeurs_Khalid_Touzani.xlsx"
-    );
+            const bureauColumn = findColumn(
+                columns,
+                [
+                    "Bureau de vote",
+                    "Bureau vote",
+                    "bureauVote",
+                    "bureau vote",
+                    "bureau de vote",
+                ]
+            );
 
-    setTimeout(() => {
-      downloadExcel(
-        result.other,
-        "electeurs_autres.xlsx"
-      );
-    }, 500);
-  };
+            const parrainColumn = findColumn(
+                columns,
+                [
+                    "Parrain",
+                    "parrain",
+                    "parrainNom",
+                    "Parrain Nom",
+                    "Nom parrain",
+                ]
+            );
 
-  // =========================================================
-  // CHANGEMENT FICHIER
-  // =========================================================
+            const ajouteParColumn = findColumn(
+                columns,
+                [
+                    "Ajouté par",
+                    "Ajoute par",
+                    "ajoutePar",
+                    "Ajout par",
+                    "ajouté par",
+                    "ajoute par",
+                ]
+            );
 
-  const handleFileChange = (event) => {
-    const selectedFile =
-      event.target.files?.[0];
+            // -----------------------------------------------------
+            // Vérification
+            // -----------------------------------------------------
 
-    if (selectedFile) {
-      processFile(selectedFile);
-    }
-  };
+            const missing = [];
 
-  // =========================================================
-  // DRAG & DROP
-  // =========================================================
+            if (!nomColumn) {
+                missing.push("Nom");
+            }
 
-  const handleDrop = (event) => {
-    event.preventDefault();
+            if (!prenomColumn) {
+                missing.push("Prénom");
+            }
 
-    setDragging(false);
+            if (!cinColumn) {
+                missing.push(
+                    "numeroCIN / CIN"
+                );
+            }
 
-    const droppedFile =
-      event.dataTransfer.files?.[0];
+            if (!telephoneColumn) {
+                missing.push("Téléphone");
+            }
 
-    if (droppedFile) {
-      processFile(droppedFile);
-    }
-  };
+            if (!bureauColumn) {
+                missing.push(
+                    "Bureau de vote"
+                );
+            }
 
-  // =========================================================
-  // RESET
-  // =========================================================
+            if (!parrainColumn) {
+                missing.push("Parrain");
+            }
 
-  const reset = () => {
-    setFile(null);
-    setResult(null);
-    setError("");
-    setLoading(false);
-  };
+            if (!ajouteParColumn) {
+                missing.push("Ajouté par");
+            }
 
-  // =========================================================
-  // RENDU
-  // =========================================================
+            if (missing.length > 0) {
+                throw new Error(
+                    `Colonnes obligatoires introuvables :\n\n${missing.join(
+                        "\n"
+                    )}\n\nColonnes présentes dans votre fichier :\n${columns.join(
+                        ", "
+                    )}`
+                );
+            }
 
-  return (
-    <div className="page">
+            // =====================================================
+            // SÉPARATION ET SUPPRESSION DES DOUBLONS
+            // =====================================================
 
-      <div className="sheet">
+            const khalidRows = [];
+            const otherRows = [];
 
-        {/* =================================================
+            // CIN déjà rencontrés
+            const khalidCins = new Set();
+            const otherCins = new Set();
+
+            let duplicatesKhalid = 0;
+            let duplicatesOther = 0;
+
+            rows.forEach((row) => {
+
+                // ---------------------------------------------------
+                // Qui a ajouté l'électeur ?
+                // ---------------------------------------------------
+
+                const ajoutePar =
+                    normalize(
+                        row[ajouteParColumn]
+                    );
+
+                const isKhalid =
+                    ajoutePar ===
+                    normalize("Khalid Touzani");
+
+                // ---------------------------------------------------
+                // CIN
+                // ---------------------------------------------------
+
+                const cin =
+                    String(
+                        row[cinColumn] ?? ""
+                    ).trim();
+
+                const normalizedCin =
+                    normalize(cin);
+
+                // ---------------------------------------------------
+                // Construction de la ligne finale
+                // ---------------------------------------------------
+
+                const formattedRow = {
+                    nom:
+                        row[nomColumn] ?? "",
+
+                    prénom:
+                        row[prenomColumn] ?? "",
+
+                    cin:
+                        cin,
+
+                    téléphone:
+                        row[telephoneColumn] ?? "",
+
+                    "bureau de vote":
+                        row[bureauColumn] ?? "",
+
+                    parrain:
+                        row[parrainColumn] ?? "",
+
+                    "service social":
+                        isKhalid
+                            ? "Moltaqa"
+                            : "Social",
+                };
+
+                // ===================================================
+                // KHALID TOUZANI
+                // ===================================================
+
+                if (isKhalid) {
+
+                    // Si le CIN est renseigné
+                    // et déjà présent => doublon
+                    if (
+                        normalizedCin &&
+                        khalidCins.has(
+                            normalizedCin
+                        )
+                    ) {
+                        duplicatesKhalid++;
+                        return;
+                    }
+
+                    if (normalizedCin) {
+                        khalidCins.add(
+                            normalizedCin
+                        );
+                    }
+
+                    khalidRows.push(
+                        formattedRow
+                    );
+
+                    return;
+                }
+
+                // ===================================================
+                // AUTRES
+                // ===================================================
+
+                if (
+                    normalizedCin &&
+                    otherCins.has(
+                        normalizedCin
+                    )
+                ) {
+                    duplicatesOther++;
+                    return;
+                }
+
+                if (normalizedCin) {
+                    otherCins.add(
+                        normalizedCin
+                    );
+                }
+
+                otherRows.push(
+                    formattedRow
+                );
+            });
+
+            // =====================================================
+            // RÉSULTAT
+            // =====================================================
+
+            setFile(selectedFile);
+
+            setResult({
+                total: rows.length,
+
+                khalid: khalidRows,
+
+                other: otherRows,
+
+                duplicatesKhalid,
+
+                duplicatesOther,
+
+                totalDuplicates:
+                    duplicatesKhalid +
+                    duplicatesOther,
+
+                sheetName,
+
+                columns: {
+                    nom: nomColumn,
+                    prenom: prenomColumn,
+                    cin: cinColumn,
+                    telephone:
+                        telephoneColumn,
+                    bureau:
+                        bureauColumn,
+                    parrain:
+                        parrainColumn,
+                    ajoutePar:
+                        ajouteParColumn,
+                },
+            });
+
+        } catch (err) {
+            console.error(err);
+
+            setError(
+                err.message ||
+                "Une erreur est survenue lors du traitement du fichier."
+            );
+
+            setFile(null);
+
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // =========================================================
+    // TÉLÉCHARGER KHALID
+    // =========================================================
+
+    const downloadKhalid = () => {
+        if (!result) return;
+
+        downloadExcel(
+            result.khalid,
+            "moltaqa.xlsx"
+        );
+    };
+
+    // =========================================================
+    // TÉLÉCHARGER AUTRES
+    // =========================================================
+
+    const downloadOther = () => {
+        if (!result) return;
+
+        downloadExcel(
+            result.other,
+            "social.xlsx"
+        );
+    };
+
+    // =========================================================
+    // TÉLÉCHARGER LES DEUX
+    // =========================================================
+
+    const downloadBoth = () => {
+        if (!result) return;
+
+        downloadExcel(
+            result.khalid,
+            "moltaqa.xlsx"
+        );
+
+        setTimeout(() => {
+            downloadExcel(
+                result.other,
+                "social.xlsx"
+            );
+        }, 500);
+    };
+
+    // =========================================================
+    // CHANGEMENT FICHIER
+    // =========================================================
+
+    const handleFileChange = (event) => {
+        const selectedFile =
+            event.target.files?.[0];
+
+        if (selectedFile) {
+            processFile(selectedFile);
+        }
+    };
+
+    // =========================================================
+    // DRAG & DROP
+    // =========================================================
+
+    const handleDrop = (event) => {
+        event.preventDefault();
+
+        setDragging(false);
+
+        const droppedFile =
+            event.dataTransfer.files?.[0];
+
+        if (droppedFile) {
+            processFile(droppedFile);
+        }
+    };
+
+    // =========================================================
+    // RESET
+    // =========================================================
+
+    const reset = () => {
+        setFile(null);
+        setResult(null);
+        setError("");
+        setLoading(false);
+    };
+
+    // =========================================================
+    // RENDU
+    // =========================================================
+
+    return (
+        <div className="page">
+
+            <div className="sheet">
+
+                {/* =================================================
             HEADER
         ================================================= */}
 
-        <header className="letterhead">
+                <header className="letterhead">
 
-          <div className="letterheadBar" />
+                    <div className="letterheadBar" />
 
-          <div className="letterheadText">
+                    <div className="letterheadText">
 
-            <span className="eyebrow">
-              Traitement électoral
-            </span>
+                        <span className="eyebrow">
+                            Traitement électoral
+                        </span>
 
-            <h1>
-              Répartition — Service social
-            </h1>
+                        <h1>
+                            Répartition — Service social
+                        </h1>
 
-            <p>
-              Importez un fichier Excel pour séparer
-              les électeurs ajoutés par Khalid Touzani
-              des autres électeurs et supprimer les doublons.
-            </p>
+                        <p>
+                            Importez un fichier Excel pour séparer
+                            les électeurs ajoutés par Khalid Touzani
+                            des autres électeurs et supprimer les doublons.
+                        </p>
 
-          </div>
+                    </div>
 
-        </header>
+                </header>
 
-        {/* =================================================
+                {/* =================================================
             IMPORTATION
         ================================================= */}
 
-        <section className="uploadSection">
+                <section className="uploadSection">
 
-          <div className="sectionHeading">
+                    <div className="sectionHeading">
 
-            <div>
+                        <div>
 
-              <span className="sectionLabel">
-                Importation
-              </span>
+                            <span className="sectionLabel">
+                                Importation
+                            </span>
 
-              <h2>
-                Sélectionner le fichier Excel
-              </h2>
+                            <h2>
+                                Sélectionner le fichier Excel
+                            </h2>
 
-            </div>
+                        </div>
 
-          </div>
+                    </div>
 
-          <label
-            className={`dropZone ${
-              dragging
-                ? "dragging"
-                : ""
-            }`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() =>
-              setDragging(false)
-            }
-            onDrop={handleDrop}
-          >
+                    <label
+                        className={`dropZone ${dragging
+                            ? "dragging"
+                            : ""
+                            }`}
+                        onDragOver={(e) => {
+                            e.preventDefault();
+                            setDragging(true);
+                        }}
+                        onDragLeave={() =>
+                            setDragging(false)
+                        }
+                        onDrop={handleDrop}
+                    >
 
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              onChange={handleFileChange}
-            />
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls,.csv"
+                            onChange={handleFileChange}
+                        />
 
-            <div className="uploadIcon">
-              ↑
-            </div>
+                        <div className="uploadIcon">
+                            ↑
+                        </div>
 
-            <div className="uploadTitle">
+                        <div className="uploadTitle">
 
-              {loading
-                ? "Traitement du fichier..."
-                : file
-                ? file.name
-                : "Déposez votre fichier Excel ici"}
+                            {loading
+                                ? "Traitement du fichier..."
+                                : file
+                                    ? file.name
+                                    : "Déposez votre fichier Excel ici"}
 
-            </div>
+                        </div>
 
-            <div className="uploadText">
-              ou cliquez pour sélectionner un fichier
-            </div>
+                        <div className="uploadText">
+                            ou cliquez pour sélectionner un fichier
+                        </div>
 
-            <div className="uploadFormats">
-              XLSX · XLS · CSV
-            </div>
+                        <div className="uploadFormats">
+                            XLSX · XLS · CSV
+                        </div>
 
-          </label>
+                    </label>
 
-          {/* =================================================
+                    {/* =================================================
               ERROR
           ================================================= */}
 
-          {error && (
-            <div className="error">
+                    {error && (
+                        <div className="error">
 
-              <div className="errorTitle">
-                Impossible de traiter le fichier
-              </div>
+                            <div className="errorTitle">
+                                Impossible de traiter le fichier
+                            </div>
 
-              <div className="errorText">
-                {error}
-              </div>
+                            <div className="errorText">
+                                {error}
+                            </div>
 
-            </div>
-          )}
+                        </div>
+                    )}
 
-        </section>
+                </section>
 
-        {/* =================================================
+                {/* =================================================
             RÉSULTATS
         ================================================= */}
 
-        {result && (
+                {result && (
 
-          <section className="resultsSection">
+                    <section className="resultsSection">
 
-            <div className="resultHeader">
+                        <div className="resultHeader">
 
-              <div>
+                            <div>
 
-                <span className="sectionLabel">
-                  Résultat
-                </span>
+                                <span className="sectionLabel">
+                                    Résultat
+                                </span>
 
-                <h2>
-                  Fichiers prêts
-                </h2>
+                                <h2>
+                                    Fichiers prêts
+                                </h2>
 
-              </div>
+                            </div>
 
-              <button
-                type="button"
-                className="resetBtn"
-                onClick={reset}
-              >
-                Nouveau fichier
-              </button>
+                            <button
+                                type="button"
+                                className="resetBtn"
+                                onClick={reset}
+                            >
+                                Nouveau fichier
+                            </button>
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 STATISTIQUES
             ================================================= */}
 
-            <div className="statsGrid">
+                        <div className="statsGrid">
 
-              <div className="statCard">
+                            <div className="statCard">
 
-                <span>
-                  Total original
-                </span>
+                                <span>
+                                    Total original
+                                </span>
 
-                <strong>
-                  {result.total.toLocaleString(
-                    "fr-FR"
-                  )}
-                </strong>
+                                <strong>
+                                    {result.total.toLocaleString(
+                                        "fr-FR"
+                                    )}
+                                </strong>
 
-                <small>
-                  lignes dans le fichier
-                </small>
+                                <small>
+                                    lignes dans le fichier
+                                </small>
 
-              </div>
+                            </div>
 
-              <div className="statCard khalid">
+                            <div className="statCard khalid">
 
-                <span>
-                  Khalid Touzani
-                </span>
+                                <span>
+                                    Khalid Touzani
+                                </span>
 
-                <strong>
-                  {result.khalid.length.toLocaleString(
-                    "fr-FR"
-                  )}
-                </strong>
+                                <strong>
+                                    {result.khalid.length.toLocaleString(
+                                        "fr-FR"
+                                    )}
+                                </strong>
 
-                <small>
-                  Moltaqa
-                </small>
+                                <small>
+                                    Moltaqa
+                                </small>
 
-              </div>
+                            </div>
 
-              <div className="statCard other">
+                            <div className="statCard other">
 
-                <span>
-                  Autres
-                </span>
+                                <span>
+                                    Autres
+                                </span>
 
-                <strong>
-                  {result.other.length.toLocaleString(
-                    "fr-FR"
-                  )}
-                </strong>
+                                <strong>
+                                    {result.other.length.toLocaleString(
+                                        "fr-FR"
+                                    )}
+                                </strong>
 
-                <small>
-                  Social
-                </small>
+                                <small>
+                                    Social
+                                </small>
 
-              </div>
+                            </div>
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 DOUBLONS
             ================================================= */}
 
-            <div className="duplicatesBox">
+                        <div className="duplicatesBox">
 
-              <div className="duplicatesHeader">
+                            <div className="duplicatesHeader">
 
-                <div>
+                                <div>
 
-                  <span className="sectionLabel">
-                    Nettoyage
-                  </span>
+                                    <span className="sectionLabel">
+                                        Nettoyage
+                                    </span>
 
-                  <h3>
-                    Doublons supprimés
-                  </h3>
+                                    <h3>
+                                        Doublons supprimés
+                                    </h3>
 
-                </div>
+                                </div>
 
-                <strong>
-                  {result.totalDuplicates.toLocaleString(
-                    "fr-FR"
-                  )}
-                </strong>
+                                <strong>
+                                    {result.totalDuplicates.toLocaleString(
+                                        "fr-FR"
+                                    )}
+                                </strong>
 
-              </div>
+                            </div>
 
-              <div className="duplicatesRows">
+                            <div className="duplicatesRows">
 
-                <div>
+                                <div>
 
-                  <span>
-                    Doublons — Khalid Touzani
-                  </span>
+                                    <span>
+                                        Doublons — Khalid Touzani
+                                    </span>
 
-                  <strong>
-                    {result.duplicatesKhalid.toLocaleString(
-                      "fr-FR"
-                    )}
-                  </strong>
+                                    <strong>
+                                        {result.duplicatesKhalid.toLocaleString(
+                                            "fr-FR"
+                                        )}
+                                    </strong>
 
-                </div>
+                                </div>
 
-                <div>
+                                <div>
 
-                  <span>
-                    Doublons — Autres
-                  </span>
+                                    <span>
+                                        Doublons — Autres
+                                    </span>
 
-                  <strong>
-                    {result.duplicatesOther.toLocaleString(
-                      "fr-FR"
-                    )}
-                  </strong>
+                                    <strong>
+                                        {result.duplicatesOther.toLocaleString(
+                                            "fr-FR"
+                                        )}
+                                    </strong>
 
-                </div>
+                                </div>
 
-              </div>
+                            </div>
 
-              <p className="duplicateNote">
-                Les doublons sont identifiés à partir
-                du CIN. Une seule ligne est conservée
-                pour chaque CIN dans chaque fichier.
-              </p>
+                            <p className="duplicateNote">
+                                Les doublons sont identifiés à partir
+                                du CIN. Une seule ligne est conservée
+                                pour chaque CIN dans chaque fichier.
+                            </p>
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 VÉRIFICATION
             ================================================= */}
 
-            <div className="verification">
+                        <div className="verification">
 
-              <div className="verificationTitle">
-                Vérification
-              </div>
+                            <div className="verificationTitle">
+                                Vérification
+                            </div>
 
-              <div className="verificationRow">
+                            <div className="verificationRow">
 
-                <span>
-                  Khalid Touzani après nettoyage
-                </span>
+                                <span>
+                                    Khalid Touzani après nettoyage
+                                </span>
 
-                <strong>
-                  {result.khalid.length.toLocaleString(
-                    "fr-FR"
-                  )}
-                </strong>
+                                <strong>
+                                    {result.khalid.length.toLocaleString(
+                                        "fr-FR"
+                                    )}
+                                </strong>
 
-              </div>
+                            </div>
 
-              <div className="verificationRow">
+                            <div className="verificationRow">
 
-                <span>
-                  Autres après nettoyage
-                </span>
+                                <span>
+                                    Autres après nettoyage
+                                </span>
 
-                <strong>
-                  {result.other.length.toLocaleString(
-                    "fr-FR"
-                  )}
-                </strong>
+                                <strong>
+                                    {result.other.length.toLocaleString(
+                                        "fr-FR"
+                                    )}
+                                </strong>
 
-              </div>
+                            </div>
 
-              <div className="verificationTotal">
+                            <div className="verificationTotal">
 
-                <span>
-                  Total après nettoyage
-                </span>
+                                <span>
+                                    Total après nettoyage
+                                </span>
 
-                <strong>
-                  {(
-                    result.khalid.length +
-                    result.other.length
-                  ).toLocaleString(
-                    "fr-FR"
-                  )}
-                </strong>
+                                <strong>
+                                    {(
+                                        result.khalid.length +
+                                        result.other.length
+                                    ).toLocaleString(
+                                        "fr-FR"
+                                    )}
+                                </strong>
 
-              </div>
+                            </div>
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 FICHIERS
             ================================================= */}
 
-            <div className="filesGrid">
+                        <div className="filesGrid">
 
-              {/* =================================================
+                            {/* =================================================
                   KHALID
               ================================================= */}
 
-              <div className="outputCard">
+                            <div className="outputCard">
 
-                <div className="outputTop">
+                                <div className="outputTop">
 
-                  <div className="excelIcon">
-                    XLS
-                  </div>
+                                    <div className="excelIcon">
+                                        XLS
+                                    </div>
 
-                  <div>
+                                    <div>
 
-                    <h3>
-                      Khalid Touzani
-                    </h3>
+                                        <h3>
+                                            Moltaqa
+                                        </h3>
 
-                    <p>
-                      Service social :{" "}
-                      <strong>
-                        Moltaqa
-                      </strong>
-                    </p>
+                                        <p>
+                                            Service social :{" "}
+                                            <strong>
+                                                Moltaqa
+                                            </strong>
+                                        </p>
 
-                  </div>
+                                    </div>
 
-                </div>
+                                </div>
 
-                <div className="outputCount">
+                                <div className="outputCount">
 
-                  {result.khalid.length.toLocaleString(
-                    "fr-FR"
-                  )}
+                                    {result.khalid.length.toLocaleString(
+                                        "fr-FR"
+                                    )}
 
-                  {" "}
+                                    {" "}
 
-                  électeur
-                  {result.khalid.length !== 1
-                    ? "s"
-                    : ""}
+                                    électeur
+                                    {result.khalid.length !== 1
+                                        ? "s"
+                                        : ""}
 
-                </div>
+                                </div>
 
-                <div className="outputInfo">
-                  {result.duplicatesKhalid > 0
-                    ? `${result.duplicatesKhalid.toLocaleString(
-                        "fr-FR"
-                      )} doublon${
-                        result.duplicatesKhalid !== 1
-                          ? "s"
-                          : ""
-                      } supprimé${
-                        result.duplicatesKhalid !== 1
-                          ? "s"
-                          : ""
-                      }`
-                    : "Aucun doublon"}
-                </div>
+                                <div className="outputInfo">
+                                    {result.duplicatesKhalid > 0
+                                        ? `${result.duplicatesKhalid.toLocaleString(
+                                            "fr-FR"
+                                        )} doublon${result.duplicatesKhalid !== 1
+                                            ? "s"
+                                            : ""
+                                        } supprimé${result.duplicatesKhalid !== 1
+                                            ? "s"
+                                            : ""
+                                        }`
+                                        : "Aucun doublon"}
+                                </div>
 
-                <button
-                  type="button"
-                  className="downloadBtn"
-                  onClick={downloadKhalid}
-                >
-                  ↓ Télécharger
-                </button>
+                                <button
+                                    type="button"
+                                    className="downloadBtn"
+                                    onClick={downloadKhalid}
+                                >
+                                    ↓ Télécharger
+                                </button>
 
-              </div>
+                            </div>
 
-              {/* =================================================
+                            {/* =================================================
                   AUTRES
               ================================================= */}
 
-              <div className="outputCard">
+                            <div className="outputCard">
 
-                <div className="outputTop">
+                                <div className="outputTop">
 
-                  <div className="excelIcon">
-                    XLS
-                  </div>
+                                    <div className="excelIcon">
+                                        XLS
+                                    </div>
 
-                  <div>
+                                    <div>
 
-                    <h3>
-                      Autres électeurs
-                    </h3>
+                                        <h3>
+                                            Social
+                                        </h3>
 
-                    <p>
-                      Service social :{" "}
-                      <strong>
-                        Social
-                      </strong>
-                    </p>
+                                        <p>
+                                            Service social :{" "}
+                                            <strong>
+                                                Social
+                                            </strong>
+                                        </p>
 
-                  </div>
+                                    </div>
 
-                </div>
+                                </div>
 
-                <div className="outputCount">
+                                <div className="outputCount">
 
-                  {result.other.length.toLocaleString(
-                    "fr-FR"
-                  )}
+                                    {result.other.length.toLocaleString(
+                                        "fr-FR"
+                                    )}
 
-                  {" "}
+                                    {" "}
 
-                  électeur
-                  {result.other.length !== 1
-                    ? "s"
-                    : ""}
+                                    électeur
+                                    {result.other.length !== 1
+                                        ? "s"
+                                        : ""}
 
-                </div>
+                                </div>
 
-                <div className="outputInfo">
-                  {result.duplicatesOther > 0
-                    ? `${result.duplicatesOther.toLocaleString(
-                        "fr-FR"
-                      )} doublon${
-                        result.duplicatesOther !== 1
-                          ? "s"
-                          : ""
-                      } supprimé${
-                        result.duplicatesOther !== 1
-                          ? "s"
-                          : ""
-                      }`
-                    : "Aucun doublon"}
-                </div>
+                                <div className="outputInfo">
+                                    {result.duplicatesOther > 0
+                                        ? `${result.duplicatesOther.toLocaleString(
+                                            "fr-FR"
+                                        )} doublon${result.duplicatesOther !== 1
+                                            ? "s"
+                                            : ""
+                                        } supprimé${result.duplicatesOther !== 1
+                                            ? "s"
+                                            : ""
+                                        }`
+                                        : "Aucun doublon"}
+                                </div>
 
-                <button
-                  type="button"
-                  className="downloadBtn"
-                  onClick={downloadOther}
-                >
-                  ↓ Télécharger
-                </button>
+                                <button
+                                    type="button"
+                                    className="downloadBtn"
+                                    onClick={downloadOther}
+                                >
+                                    ↓ Télécharger
+                                </button>
 
-              </div>
+                            </div>
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 DOWNLOAD BOTH
             ================================================= */}
 
-            <button
-              type="button"
-              className="downloadAllBtn"
-              onClick={downloadBoth}
-            >
-              ↓ Télécharger les deux fichiers
-            </button>
+                        <button
+                            type="button"
+                            className="downloadAllBtn"
+                            onClick={downloadBoth}
+                        >
+                            ↓ Télécharger les deux fichiers
+                        </button>
 
-            {/* =================================================
+                        {/* =================================================
                 COLONNES
             ================================================= */}
 
-            <div className="columnsInfo">
+                        <div className="columnsInfo">
 
-              <div className="columnsTitle">
-                Colonnes des fichiers générés
-              </div>
+                            <div className="columnsTitle">
+                                Colonnes des fichiers générés
+                            </div>
 
-              <div className="columnsList">
+                            <div className="columnsList">
 
-                <span>
-                  nom
-                </span>
+                                <span>
+                                    nom
+                                </span>
 
-                <span>
-                  prénom
-                </span>
+                                <span>
+                                    prénom
+                                </span>
 
-                <span>
-                  cin
-                </span>
+                                <span>
+                                    cin
+                                </span>
 
-                <span>
-                  téléphone
-                </span>
+                                <span>
+                                    téléphone
+                                </span>
 
-                <span>
-                  bureau de vote
-                </span>
+                                <span>
+                                    bureau de vote
+                                </span>
 
-                <span>
-                  parrain
-                </span>
+                                <span>
+                                    parrain
+                                </span>
 
-                <span>
-                  service social
-                </span>
+                                <span>
+                                    service social
+                                </span>
 
-              </div>
+                            </div>
 
-            </div>
+                        </div>
 
-          </section>
-        )}
+                    </section>
+                )}
 
-        {/* =================================================
+                {/* =================================================
             EMPTY STATE
         ================================================= */}
 
-        {!result &&
-          !loading &&
-          !error && (
+                {!result &&
+                    !loading &&
+                    !error && (
 
-            <div className="emptyState">
+                        <div className="emptyState">
 
-              <div className="emptyIcon">
-                XLS
-              </div>
+                            <div className="emptyIcon">
+                                XLS
+                            </div>
 
-              <h3>
-                Aucun fichier analysé
-              </h3>
+                            <h3>
+                                Aucun fichier analysé
+                            </h3>
 
-              <p>
-                Importez votre fichier Excel pour
-                générer les deux fichiers sociaux.
-              </p>
+                            <p>
+                                Importez votre fichier Excel pour
+                                générer les deux fichiers sociaux.
+                            </p>
+
+                        </div>
+                    )}
 
             </div>
-          )}
 
-      </div>
-
-      {/* =====================================================
+            {/* =====================================================
           STYLE
       ===================================================== */}
 
-      <style jsx>{`
+            <style jsx>{`
 
         .page {
           min-height: 100vh;
@@ -1704,6 +1699,6 @@ export default function SocialPage() {
 
       `}</style>
 
-    </div>
-  );
+        </div>
+    );
 }
