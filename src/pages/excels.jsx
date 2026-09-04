@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import fs from "fs";
 import path from "path";
+import * as XLSX from "xlsx";
 import { FileSpreadsheet, Download, Search, FolderOpen } from "lucide-react";
 
 // =========================================================
@@ -24,6 +25,33 @@ function listerFichiersExcel(dirAbsolu) {
   }
 }
 
+// Un fichier est considéré comme "vide" s'il pèse 0 octet, s'il n'a
+// aucune feuille, ou si aucune de ses feuilles ne contient de ligne de
+// données (au-delà d'un éventuel en-tête).
+function excelEstVide(cheminAbsolu) {
+  try {
+    const stat = fs.statSync(cheminAbsolu);
+    if (stat.size === 0) return true;
+
+    const classeur = XLSX.readFile(cheminAbsolu);
+    if (!classeur.SheetNames || classeur.SheetNames.length === 0) return true;
+
+    return classeur.SheetNames.every((nomFeuille) => {
+      const feuille = classeur.Sheets[nomFeuille];
+      const lignes = XLSX.utils.sheet_to_json(feuille, {
+        header: 1,
+        blankrows: false,
+      });
+      // 0 ligne = feuille totalement vide. 1 seule ligne = probablement
+      // juste la ligne d'en-têtes, sans aucune donnée exploitable.
+      return lignes.length <= 1;
+    });
+  } catch (err) {
+    // Fichier illisible/corrompu : on le traite comme indisponible.
+    return true;
+  }
+}
+
 export async function getServerSideProps() {
   const publicDir = path.join(process.cwd(), "public");
 
@@ -38,12 +66,16 @@ export async function getServerSideProps() {
   DOSSIERS.forEach(({ key, dir }) => {
     fichiersParDossier[key].forEach((fichier) => {
       const nomParrain = fichier.replace(/\.xlsx?$/i, "").trim();
+      const cheminAbsolu = path.join(publicDir, dir, fichier);
 
       if (!parrainsMap.has(nomParrain)) {
         parrainsMap.set(nomParrain, { nom: nomParrain });
       }
 
-      parrainsMap.get(nomParrain)[key] = `/${dir}/${fichier}`;
+      parrainsMap.get(nomParrain)[key] = {
+        url: `/${dir}/${fichier}`,
+        vide: excelEstVide(cheminAbsolu),
+      };
     });
   });
 
@@ -80,6 +112,18 @@ function nomTelechargement(parrain, type) {
   return `${sanitizeFileName(parrain)}_${type}.xlsx`;
 }
 
+// Un fichier est "disponible" au téléchargement s'il existe ET n'est pas vide.
+function estDisponible(fichier) {
+  return Boolean(fichier) && !fichier.vide;
+}
+
+// Classe CSS du badge : présent + rempli / présent mais vide / absent.
+function badgeClasse(fichier, disponible) {
+  if (disponible) return "badgeOn";
+  if (fichier) return "badgeEmpty";
+  return "badgeOff";
+}
+
 // Déclenche plusieurs téléchargements successifs (avec un léger délai pour
 // éviter que le navigateur ne bloque le second en tant que pop-up), en
 // forçant le nom de chaque fichier téléchargé.
@@ -109,9 +153,11 @@ export default function ExcelsPage({ parrains }) {
     return parrains.filter((p) => normaliser(p.nom).includes(q));
   }, [parrains, search]);
 
-  const totalMoltaqa = parrains.filter((p) => p.moltaqa).length;
-  const totalSocial = parrains.filter((p) => p.social).length;
-  const totalComplet = parrains.filter((p) => p.moltaqa && p.social).length;
+  const totalMoltaqa = parrains.filter((p) => estDisponible(p.moltaqa)).length;
+  const totalSocial = parrains.filter((p) => estDisponible(p.social)).length;
+  const totalComplet = parrains.filter(
+    (p) => estDisponible(p.moltaqa) && estDisponible(p.social)
+  ).length;
 
   return (
     <div className="page">
@@ -146,7 +192,7 @@ export default function ExcelsPage({ parrains }) {
 
         <section className="searchSection">
           <div className="searchBox">
-            <Search size={16} strokeWidth={2} className="searchIcon" />
+            {/* <Search size={16} strokeWidth={2} className="searchIcon" /> */}
             <input
               type="text"
               placeholder="Rechercher un parrain..."
@@ -168,65 +214,83 @@ export default function ExcelsPage({ parrains }) {
             </div>
           ) : (
             <div className="parrainList">
-              {parrainsFiltres.map((p) => (
-                <div key={p.nom} className="parrainCard">
-                  <div className="parrainInfo">
-                    <div className="parrainIcon">
-                      <FileSpreadsheet size={18} strokeWidth={1.8} />
-                    </div>
-                    <div className="parrainText">
-                      <span className="parrainNom">{p.nom}</span>
-                      <div className="parrainBadges">
-                        <span className={`badge ${p.moltaqa ? "badgeOn" : "badgeOff"}`}>
-                          Moltaqa
-                        </span>
-                        <span className={`badge ${p.social ? "badgeOn" : "badgeOff"}`}>
-                          Social
-                        </span>
+              {parrainsFiltres.map((p) => {
+                const moltaqaOk = estDisponible(p.moltaqa);
+                const socialOk = estDisponible(p.social);
+                const nbDisponibles = (moltaqaOk ? 1 : 0) + (socialOk ? 1 : 0);
+
+                const fichiersATelecharger = [
+                  moltaqaOk && {
+                    url: p.moltaqa.url,
+                    nomFichier: nomTelechargement(p.nom, "moltaqa"),
+                  },
+                  socialOk && {
+                    url: p.social.url,
+                    nomFichier: nomTelechargement(p.nom, "social"),
+                  },
+                ].filter(Boolean);
+
+                let libelleCombine = "Les deux";
+                if (nbDisponibles === 0) libelleCombine = "Indisponible";
+                else if (nbDisponibles === 1) libelleCombine = "Télécharger le disponible";
+
+                return (
+                  <div key={p.nom} className="parrainCard">
+                    <div className="parrainInfo">
+                      <div className="parrainIcon">
+                        <FileSpreadsheet size={18} strokeWidth={1.8} />
+                      </div>
+                      <div className="parrainText">
+                        <span className="parrainNom">{p.nom}</span>
+                        <div className="parrainBadges">
+                          <span
+                            className={`badge ${badgeClasse(p.moltaqa, moltaqaOk)}`}
+                          >
+                            Moltaqa{p.moltaqa && !moltaqaOk ? " (vide)" : ""}
+                          </span>
+                          <span className={`badge ${badgeClasse(p.social, socialOk)}`}>
+                            Social{p.social && !socialOk ? " (vide)" : ""}
+                          </span>
+                        </div>
                       </div>
                     </div>
+
+                    <div className="parrainActions">
+                      <a
+                        className={`actionBtn ${!moltaqaOk ? "actionBtnDisabled" : ""}`}
+                        href={moltaqaOk ? p.moltaqa.url : undefined}
+                        download={moltaqaOk ? nomTelechargement(p.nom, "moltaqa") : undefined}
+                        aria-disabled={!moltaqaOk}
+                        onClick={(e) => !moltaqaOk && e.preventDefault()}
+                      >
+                        <Download size={14} strokeWidth={2} />
+                        Moltaqa
+                      </a>
+
+                      <a
+                        className={`actionBtn ${!socialOk ? "actionBtnDisabled" : ""}`}
+                        href={socialOk ? p.social.url : undefined}
+                        download={socialOk ? nomTelechargement(p.nom, "social") : undefined}
+                        aria-disabled={!socialOk}
+                        onClick={(e) => !socialOk && e.preventDefault()}
+                      >
+                        <Download size={14} strokeWidth={2} />
+                        Social
+                      </a>
+
+                      <button
+                        type="button"
+                        className="actionBtn actionBtnPrimary"
+                        disabled={nbDisponibles === 0}
+                        onClick={() => telechargerPlusieurs(fichiersATelecharger)}
+                      >
+                        <Download size={14} strokeWidth={2} />
+                        {libelleCombine}
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="parrainActions">
-                    <a
-                      className={`actionBtn ${!p.moltaqa ? "actionBtnDisabled" : ""}`}
-                      href={p.moltaqa || undefined}
-                      download={p.moltaqa ? nomTelechargement(p.nom, "moltaqa") : undefined}
-                      aria-disabled={!p.moltaqa}
-                      onClick={(e) => !p.moltaqa && e.preventDefault()}
-                    >
-                      <Download size={14} strokeWidth={2} />
-                      Moltaqa
-                    </a>
-
-                    <a
-                      className={`actionBtn ${!p.social ? "actionBtnDisabled" : ""}`}
-                      href={p.social || undefined}
-                      download={p.social ? nomTelechargement(p.nom, "social") : undefined}
-                      aria-disabled={!p.social}
-                      onClick={(e) => !p.social && e.preventDefault()}
-                    >
-                      <Download size={14} strokeWidth={2} />
-                      Social
-                    </a>
-
-                    <button
-                      type="button"
-                      className="actionBtn actionBtnPrimary"
-                      disabled={!p.moltaqa || !p.social}
-                      onClick={() =>
-                        telechargerPlusieurs([
-                          { url: p.moltaqa, nomFichier: nomTelechargement(p.nom, "moltaqa") },
-                          { url: p.social, nomFichier: nomTelechargement(p.nom, "social") },
-                        ])
-                      }
-                    >
-                      <Download size={14} strokeWidth={2} />
-                      Les deux
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
@@ -321,7 +385,6 @@ export default function ExcelsPage({ parrains }) {
         }
         .searchBox {
           position: relative;
-          display: flex;
           align-items: center;
         }
         .searchIcon {
@@ -441,6 +504,10 @@ export default function ExcelsPage({ parrains }) {
           background: #f1efe9;
           color: #b3ac9f;
         }
+        .badgeEmpty {
+          background: #fbf1e4;
+          color: #a3742f;
+        }
 
         .parrainActions {
           display: flex;
@@ -478,7 +545,7 @@ export default function ExcelsPage({ parrains }) {
           color: #ffffff;
         }
         .actionBtnPrimary:hover:not(:disabled) {
-          background: #16293f;
+          background: #16293f !important;
         }
         .actionBtnPrimary:disabled {
           background: #d7d2c6;
