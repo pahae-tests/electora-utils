@@ -644,12 +644,13 @@ export default function ExcelsPage({ parrains }) {
                             />
                         </div>
                         <button
+                            disabled
                             type="button"
                             className="actionBtn actionBtnPrimary addBtn"
                             onClick={() => setModaleOuverte(true)}
                         >
                             <Plus size={14} strokeWidth={2} />
-                            Ajouter des fichiers
+                            Ajouter des fichiers (en cours de developpement att)
                         </button>
                     </div>
                 </section>
