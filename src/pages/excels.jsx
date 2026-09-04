@@ -1,8 +1,18 @@
 import { useMemo, useState } from "react";
+import { useRouter } from "next/router";
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
-import { FileSpreadsheet, Download, Search, FolderOpen } from "lucide-react";
+import {
+    FileSpreadsheet,
+    Download,
+    Search,
+    FolderOpen,
+    Plus,
+    X,
+    Trash2,
+    Loader2,
+} from "lucide-react";
 
 // =========================================================
 // LECTURE DES DOSSIERS PUBLIC/MOLTAQA ET PUBLIC/SOCIAL
@@ -145,12 +155,409 @@ async function telechargerPlusieurs(fichiers) {
     }
 }
 
+// Lit un fichier <input type="file"> et le convertit en base64 (sans le
+// préfixe "data:...;base64,") pour pouvoir l'envoyer en JSON à l'API.
+function fichierVersBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const resultat = String(reader.result || "");
+            const base64 = resultat.split(",")[1] || "";
+            resolve(base64);
+        };
+        reader.onerror = () => reject(new Error("Impossible de lire le fichier."));
+        reader.readAsDataURL(file);
+    });
+}
+
+// =========================================================
+// MODALE D'AJOUT D'UN PARRAIN
+// =========================================================
+
+function ModaleAjout({ onClose, onSuccess }) {
+    const [fichiersMoltaqa, setFichiersMoltaqa] = useState([]);
+    const [fichiersSocial, setFichiersSocial] = useState([]);
+    const [envoiEnCours, setEnvoiEnCours] = useState(false);
+    const [erreur, setErreur] = useState("");
+
+    async function handleSubmit(e) {
+        e.preventDefault();
+        setErreur("");
+
+        if (
+            fichiersMoltaqa.length === 0 &&
+            fichiersSocial.length === 0
+        ) {
+            setErreur(
+                "Ajoutez au moins un fichier Moltaqa ou Social."
+            );
+            return;
+        }
+
+        setEnvoiEnCours(true);
+
+        try {
+            const payload = {
+                moltaqa: [],
+                social: [],
+            };
+
+            // =========================
+            // MOLTAQA
+            // =========================
+
+            for (const fichier of fichiersMoltaqa) {
+                payload.moltaqa.push({
+                    nomFichier: fichier.name,
+                    data: await fichierVersBase64(fichier),
+                });
+            }
+
+            // =========================
+            // SOCIAL
+            // =========================
+
+            for (const fichier of fichiersSocial) {
+                payload.social.push({
+                    nomFichier: fichier.name,
+                    data: await fichierVersBase64(fichier),
+                });
+            }
+
+            const res = await fetch("/api/excels/add", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+                throw new Error(
+                    data.error ||
+                    "Une erreur est survenue."
+                );
+            }
+
+            onSuccess();
+        } catch (err) {
+            setErreur(
+                err.message ||
+                "Une erreur est survenue."
+            );
+        } finally {
+            setEnvoiEnCours(false);
+        }
+    }
+
+    return (
+        <div
+            className="modalOverlay"
+            onClick={onClose}
+        >
+            <div
+                className="modalBox"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="modalHeader">
+                    <h2>Ajouter des fichiers Excel</h2>
+
+                    <button
+                        type="button"
+                        className="modalClose"
+                        onClick={onClose}
+                        aria-label="Fermer"
+                    >
+                        <X
+                            size={18}
+                            strokeWidth={2}
+                        />
+                    </button>
+                </div>
+
+                <form
+                    onSubmit={handleSubmit}
+                    className="modalForm"
+                >
+                    {/* =========================
+                        MOLTAQA
+                    ========================= */}
+
+                    <label className="fieldLabel">
+                        Fichiers Moltaqa
+
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls"
+                            multiple
+                            onChange={(e) =>
+                                setFichiersMoltaqa(
+                                    Array.from(
+                                        e.target.files || []
+                                    )
+                                )
+                            }
+                        />
+
+                        {fichiersMoltaqa.length > 0 && (
+                            <div className="selectedFiles">
+                                {fichiersMoltaqa.map(
+                                    (fichier, index) => (
+                                        <div
+                                            key={`${fichier.name}-${index}`}
+                                            className="selectedFile"
+                                        >
+                                            <FileSpreadsheet
+                                                size={14}
+                                            />
+
+                                            <span>
+                                                {fichier.name}
+                                            </span>
+                                        </div>
+                                    )
+                                )}
+                            </div>
+                        )}
+                    </label>
+
+                    {/* =========================
+                        SOCIAL
+                    ========================= */}
+
+                    <label className="fieldLabel">
+                        Fichiers Social
+
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls"
+                            multiple
+                            onChange={(e) =>
+                                setFichiersSocial(
+                                    Array.from(
+                                        e.target.files || []
+                                    )
+                                )
+                            }
+                        />
+
+                        {fichiersSocial.length > 0 && (
+                            <div className="selectedFiles">
+                                {fichiersSocial.map(
+                                    (fichier, index) => (
+                                        <div
+                                            key={`${fichier.name}-${index}`}
+                                            className="selectedFile"
+                                        >
+                                            <FileSpreadsheet
+                                                size={14}
+                                            />
+
+                                            <span>
+                                                {fichier.name}
+                                            </span>
+                                        </div>
+                                    )
+                                )}
+                            </div>
+                        )}
+                    </label>
+
+                    {erreur && (
+                        <p className="modalErreur">
+                            {erreur}
+                        </p>
+                    )}
+
+                    <div className="modalActions">
+                        <button
+                            type="button"
+                            className="actionBtn"
+                            onClick={onClose}
+                            disabled={envoiEnCours}
+                        >
+                            Annuler
+                        </button>
+
+                        <button
+                            type="submit"
+                            className="actionBtn actionBtnPrimary"
+                            disabled={envoiEnCours}
+                        >
+                            {envoiEnCours ? (
+                                <Loader2
+                                    size={14}
+                                    strokeWidth={2}
+                                    className="spin"
+                                />
+                            ) : (
+                                <Plus
+                                    size={14}
+                                    strokeWidth={2}
+                                />
+                            )}
+
+                            {envoiEnCours
+                                ? "Ajout..."
+                                : "Ajouter les fichiers"}
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <style jsx>{`
+                .modalOverlay {
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(22, 25, 28, 0.45);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 20px;
+                    z-index: 50;
+                }
+
+                .modalBox {
+                    width: 100%;
+                    max-width: 520px;
+                    background: #ffffff;
+                    border-radius: 8px;
+                    border: 1px solid #e0ddd4;
+                    max-height: 90vh;
+                    overflow-y: auto;
+                }
+
+                .modalHeader {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 18px 20px;
+                    border-bottom: 1px solid #e0ddd4;
+                }
+
+                .modalHeader h2 {
+                    margin: 0;
+                    font-family: Georgia, "Times New Roman", serif;
+                    font-size: 18px;
+                    color: #16191c;
+                }
+
+                .modalClose {
+                    background: none;
+                    border: none;
+                    color: #6b6459;
+                    cursor: pointer;
+                    padding: 4px;
+                    display: flex;
+                }
+
+                .modalForm {
+                    padding: 20px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 18px;
+                }
+
+                .fieldLabel {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: #6b6459;
+                    text-transform: uppercase;
+                    letter-spacing: 0.03em;
+                }
+
+                .fieldLabel input[type="file"] {
+                    font-size: 12px;
+                    font-weight: 400;
+                    text-transform: none;
+                    letter-spacing: normal;
+                    color: #6b6459;
+                }
+
+                .selectedFiles {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 5px;
+                    max-height: 150px;
+                    overflow-y: auto;
+                    padding: 8px;
+                    background: #fbfaf8;
+                    border: 1px solid #e0ddd4;
+                    border-radius: 4px;
+                }
+
+                .selectedFile {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 6px 8px;
+                    background: #ffffff;
+                    border: 1px solid #e5e1d8;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    color: #1e2124;
+                }
+
+                .selectedFile svg {
+                    flex-shrink: 0;
+                    color: #1f3a5f;
+                }
+
+                .selectedFile span {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+
+                .modalErreur {
+                    margin: 0;
+                    font-size: 13px;
+                    color: #b3261e;
+                    background: #fdecea;
+                    border: 1px solid #f3c6c2;
+                    border-radius: 4px;
+                    padding: 8px 10px;
+                }
+
+                .modalActions {
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 8px;
+                    margin-top: 4px;
+                }
+
+                .spin {
+                    animation: spin 0.8s linear infinite;
+                }
+
+                @keyframes spin {
+                    from {
+                        transform: rotate(0deg);
+                    }
+
+                    to {
+                        transform: rotate(360deg);
+                    }
+                }
+            `}</style>
+        </div>
+    );
+}
+
 // =========================================================
 // PAGE
 // =========================================================
 
 export default function ExcelsPage({ parrains }) {
+    const router = useRouter();
     const [search, setSearch] = useState("");
+    const [modaleOuverte, setModaleOuverte] = useState(false);
+    const [suppressionEnCours, setSuppressionEnCours] = useState(null);
 
     const parrainsFiltres = useMemo(() => {
         const q = normaliser(search);
@@ -163,6 +570,36 @@ export default function ExcelsPage({ parrains }) {
     const totalComplet = parrains.filter(
         (p) => estDisponible(p.moltaqa) && estDisponible(p.social)
     ).length;
+
+    // Redemande les données au serveur (getServerSideProps) sans rechargement complet.
+    function rafraichir() {
+        router.replace(router.asPath, undefined, { scroll: false });
+    }
+
+    async function handleSupprimer(nomParrain) {
+        const confirme = window.confirm(
+            `Supprimer définitivement "${nomParrain}" (fichiers Moltaqa et Social) ?`
+        );
+        if (!confirme) return;
+
+        setSuppressionEnCours(nomParrain);
+        try {
+            const res = await fetch("/api/excels/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nom: nomParrain }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || "Erreur lors de la suppression.");
+            }
+            rafraichir();
+        } catch (err) {
+            window.alert(err.message || "Erreur lors de la suppression.");
+        } finally {
+            setSuppressionEnCours(null);
+        }
+    }
 
     return (
         <div className="page">
@@ -196,14 +633,24 @@ export default function ExcelsPage({ parrains }) {
                 </section>
 
                 <section className="searchSection">
-                    <div className="searchBox">
-                        {/* <Search size={16} strokeWidth={2} className="searchIcon" /> */}
-                        <input
-                            type="text"
-                            placeholder="Rechercher un parrain..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
+                    <div className="searchRow">
+                        <div className="searchBox">
+                            {/* <Search size={16} strokeWidth={2} className="searchIcon" /> */}
+                            <input
+                                type="text"
+                                placeholder="Rechercher un parrain..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            className="actionBtn actionBtnPrimary addBtn"
+                            onClick={() => setModaleOuverte(true)}
+                        >
+                            <Plus size={14} strokeWidth={2} />
+                            Ajouter des fichiers
+                        </button>
                     </div>
                 </section>
 
@@ -223,6 +670,7 @@ export default function ExcelsPage({ parrains }) {
                                 const moltaqaOk = estDisponible(p.moltaqa);
                                 const socialOk = estDisponible(p.social);
                                 const nbDisponibles = (moltaqaOk ? 1 : 0) + (socialOk ? 1 : 0);
+                                const enSuppression = suppressionEnCours === p.nom;
 
                                 const fichiersATelecharger = [
                                     moltaqaOk && {
@@ -296,6 +744,20 @@ export default function ExcelsPage({ parrains }) {
                                                 <Download size={14} strokeWidth={2} />
                                                 {libelleCombine}
                                             </button>
+
+                                            <button
+                                                type="button"
+                                                className="actionBtn actionBtnDanger"
+                                                disabled={enSuppression}
+                                                onClick={() => handleSupprimer(p.nom)}
+                                                aria-label={`Supprimer ${p.nom}`}
+                                            >
+                                                {enSuppression ? (
+                                                    <Loader2 size={14} strokeWidth={2} className="spin" />
+                                                ) : (
+                                                    <Trash2 size={14} strokeWidth={2} />
+                                                )}
+                                            </button>
                                         </div>
                                     </div>
                                 );
@@ -304,6 +766,16 @@ export default function ExcelsPage({ parrains }) {
                     )}
                 </section>
             </div>
+
+            {modaleOuverte && (
+                <ModaleAjout
+                    onClose={() => setModaleOuverte(false)}
+                    onSuccess={() => {
+                        setModaleOuverte(false);
+                        rafraichir();
+                    }}
+                />
+            )}
 
             <style jsx>{`
         .page {
@@ -392,9 +864,17 @@ export default function ExcelsPage({ parrains }) {
         .searchSection {
           padding: 24px 36px 0;
         }
+        .searchRow {
+          display: flex;
+          gap: 10px;
+          align-items: stretch;
+        }
         .searchBox {
           position: relative;
+          display: flex;
           align-items: center;
+          flex: 1;
+          min-width: 0;
         }
         .searchIcon {
           position: absolute;
@@ -416,6 +896,10 @@ export default function ExcelsPage({ parrains }) {
           outline: none;
           border-color: #1f3a5f;
           box-shadow: 0 0 0 3px rgba(31, 58, 95, 0.12);
+        }
+        .addBtn {
+          white-space: nowrap;
+          flex-shrink: 0;
         }
 
         /* ============ LIST ============ */
@@ -522,11 +1006,13 @@ export default function ExcelsPage({ parrains }) {
           display: flex;
           gap: 8px;
           flex-shrink: 0;
+          flex-wrap: wrap;
         }
 
         .actionBtn {
           display: inline-flex;
           align-items: center;
+          justify-content: center;
           gap: 6px;
           background: #ffffff;
           border: 1px solid #d7d2c6;
@@ -562,27 +1048,94 @@ export default function ExcelsPage({ parrains }) {
           color: #9a9488;
           cursor: not-allowed;
         }
+        .actionBtnDanger {
+          color: #b3261e;
+          border-color: #f0d3d1;
+          padding: 7px 9px;
+        }
+        .actionBtnDanger:hover:not(:disabled) {
+          background: #fdecea;
+        }
+        .actionBtnDanger:disabled {
+          color: #d9a8a4;
+          cursor: not-allowed;
+        }
+        .spin {
+          animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        /* ============ RESPONSIVE ============ */
 
         @media (max-width: 640px) {
+          .page {
+            padding: 24px 12px;
+          }
           .letterheadText,
           .searchSection,
           .listSection {
-            padding-left: 22px;
-            padding-right: 22px;
+            padding-left: 20px;
+            padding-right: 20px;
+          }
+          .letterheadText {
+            padding-top: 22px;
+            padding-bottom: 20px;
+          }
+          .letterheadText h1 {
+            font-size: 21px;
+          }
+          .letterheadText p {
+            font-size: 13px;
           }
           .statsRow {
             grid-template-columns: repeat(2, 1fr);
           }
+          .statCard {
+            padding: 12px 14px;
+          }
+          .searchRow {
+            flex-direction: column;
+          }
+          .addBtn {
+            justify-content: center;
+          }
           .parrainCard {
             flex-direction: column;
-            align-items: flex-start;
+            align-items: stretch;
           }
           .parrainActions {
             width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+          }
+          .parrainActions .actionBtnPrimary {
+            grid-column: 1 / -1;
+          }
+          .parrainActions .actionBtnDanger {
+            grid-column: 1 / -1;
           }
           .actionBtn {
             flex: 1;
-            justify-content: center;
+            width: 100%;
+          }
+        }
+
+        @media (max-width: 380px) {
+          .letterheadText h1 {
+            font-size: 19px;
+          }
+          .statValue {
+            font-size: 18px;
+          }
+          .statLabel {
+            font-size: 10px;
           }
         }
       `}</style>
