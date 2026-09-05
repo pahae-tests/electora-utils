@@ -2,1040 +2,1105 @@ import { useState } from "react";
 import * as XLSX from "xlsx";
 
 export default function MergePage() {
-  const [files, setFiles] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState(null);
-  const [dragging, setDragging] = useState(false);
+    const [files, setFiles] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [result, setResult] = useState(null);
+    const [dragging, setDragging] = useState(false);
 
-  // =========================================================
-  // NORMALISATION
-  // =========================================================
+    // =========================================================
+    // NORMALISATION
+    // =========================================================
 
-  const normalize = (value) => {
-    return String(value ?? "")
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/\s+/g, " ");
-  };
-
-  // =========================================================
-  // VÉRIFICATION DES FICHIERS
-  // =========================================================
-
-  const isExcelFile = (file) => {
-    const name = file.name.toLowerCase();
-
-    return (
-      name.endsWith(".xlsx") ||
-      name.endsWith(".xls") ||
-      name.endsWith(".csv")
-    );
-  };
-
-  // =========================================================
-  // AJOUT DES FICHIERS
-  // =========================================================
-
-  const handleFiles = (selectedFiles) => {
-    setError("");
-
-    const selected = Array.from(selectedFiles);
-
-    if (selected.length < 2) {
-      setError(
-        "Veuillez sélectionner au moins 2 fichiers Excel."
-      );
-      return;
-    }
-
-    if (selected.length > 3) {
-      setError(
-        "Vous pouvez sélectionner au maximum 3 fichiers Excel."
-      );
-      return;
-    }
-
-    const invalidFiles = selected.filter(
-      (file) => !isExcelFile(file)
-    );
-
-    if (invalidFiles.length > 0) {
-      setError(
-        "Seuls les fichiers Excel (.xlsx, .xls ou .csv) sont acceptés."
-      );
-      return;
-    }
-
-    setFiles(selected);
-    setResult(null);
-  };
-
-  // =========================================================
-  // INPUT FILE
-  // =========================================================
-
-  const handleFileChange = (event) => {
-    handleFiles(event.target.files);
-  };
-
-  // =========================================================
-  // DRAG & DROP
-  // =========================================================
-
-  const handleDrop = (event) => {
-    event.preventDefault();
-    setDragging(false);
-
-    handleFiles(event.dataTransfer.files);
-  };
-
-  // =========================================================
-  // SUPPRIMER UN FICHIER
-  // =========================================================
-
-  const removeFile = (index) => {
-    const newFiles = files.filter(
-      (_, i) => i !== index
-    );
-
-    setFiles(newFiles);
-    setResult(null);
-    setError("");
-  };
-
-  // =========================================================
-  // DÉPLACER UN FICHIER VERS LE HAUT
-  // =========================================================
-
-  const moveUp = (index) => {
-    if (index === 0) return;
-
-    const newFiles = [...files];
-
-    [
-      newFiles[index - 1],
-      newFiles[index],
-    ] = [
-      newFiles[index],
-      newFiles[index - 1],
-    ];
-
-    setFiles(newFiles);
-    setResult(null);
-  };
-
-  // =========================================================
-  // DÉPLACER UN FICHIER VERS LE BAS
-  // =========================================================
-
-  const moveDown = (index) => {
-    if (index === files.length - 1) return;
-
-    const newFiles = [...files];
-
-    [
-      newFiles[index],
-      newFiles[index + 1],
-    ] = [
-      newFiles[index + 1],
-      newFiles[index],
-    ];
-
-    setFiles(newFiles);
-    setResult(null);
-  };
-
-  // =========================================================
-  // LIRE UN FICHIER
-  // =========================================================
-
-  const readExcel = async (file) => {
-    const buffer =
-      await file.arrayBuffer();
-
-    const workbook =
-      XLSX.read(buffer, {
-        type: "array",
-        cellDates: true,
-      });
-
-    if (
-      !workbook.SheetNames ||
-      workbook.SheetNames.length === 0
-    ) {
-      throw new Error(
-        `Le fichier "${file.name}" ne contient aucune feuille.`
-      );
-    }
-
-    // Première feuille
-    const sheetName =
-      workbook.SheetNames[0];
-
-    const worksheet =
-      workbook.Sheets[sheetName];
-
-    // Lecture sous forme de tableau
-    const rows =
-      XLSX.utils.sheet_to_json(
-        worksheet,
-        {
-          header: 1,
-          defval: "",
-          raw: false,
-        }
-      );
-
-    if (!rows.length) {
-      return {
-        fileName: file.name,
-        sheetName,
-        headers: [],
-        data: [],
-      };
-    }
-
-    // Première ligne = en-têtes
-    const headers =
-      rows[0].map((header) =>
-        String(header ?? "").trim()
-      );
-
-    // Supprimer les lignes complètement vides
-    const data = rows
-      .slice(1)
-      .filter((row) =>
-        row.some(
-          (cell) =>
-            String(cell ?? "").trim() !== ""
-        )
-      );
-
-    return {
-      fileName: file.name,
-      sheetName,
-      headers,
-      data,
+    const normalize = (value) => {
+        return String(value ?? "")
+            .trim()
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\s+/g, " ");
     };
-  };
 
-  // =========================================================
-  // FUSION
-  // =========================================================
+    // =========================================================
+    // VÉRIFICATION DES FICHIERS
+    // =========================================================
 
-  const mergeFiles = async () => {
-    if (files.length < 2) {
-      setError(
-        "Veuillez sélectionner au moins 2 fichiers."
-      );
-      return;
-    }
+    const isExcelFile = (file) => {
+        const name = file.name.toLowerCase();
 
-    setLoading(true);
-    setError("");
-    setResult(null);
+        return (
+            name.endsWith(".xlsx") ||
+            name.endsWith(".xls") ||
+            name.endsWith(".csv")
+        );
+    };
 
-    try {
-      // -----------------------------------------------------
-      // Lecture de tous les fichiers
-      // -----------------------------------------------------
+    // =========================================================
+    // AJOUT DES FICHIERS
+    // =========================================================
 
-      const parsedFiles = [];
+    const handleFiles = (selectedFiles) => {
+        setError("");
 
-      for (const file of files) {
-        const parsed =
-          await readExcel(file);
+        const selected = Array.from(selectedFiles);
 
-        parsedFiles.push(parsed);
-      }
+        if (selected.length === 0) {
+            return;
+        }
 
-      // -----------------------------------------------------
-      // Vérifier qu'il existe au moins une colonne
-      // -----------------------------------------------------
-
-      const validFiles =
-        parsedFiles.filter(
-          (file) =>
-            file.headers.length > 0
+        // Vérifier les extensions
+        const invalidFiles = selected.filter(
+            (file) => !isExcelFile(file)
         );
 
-      if (!validFiles.length) {
-        throw new Error(
-          "Les fichiers sélectionnés sont vides."
+        if (invalidFiles.length > 0) {
+            setError(
+                "Seuls les fichiers Excel (.xlsx, .xls ou .csv) sont acceptés."
+            );
+            return;
+        }
+
+        // Nombre maximum de fichiers
+        if (files.length + selected.length > 3) {
+            setError(
+                "Vous pouvez sélectionner au maximum 3 fichiers Excel au total."
+            );
+            return;
+        }
+
+        // Ajouter les nouveaux fichiers aux fichiers existants
+        setFiles((previousFiles) => [
+            ...previousFiles,
+            ...selected,
+        ]);
+
+        setResult(null);
+    };
+
+    // =========================================================
+    // INPUT FILE
+    // =========================================================
+
+    const handleFileChange = (event) => {
+        handleFiles(event.target.files);
+    };
+
+    // =========================================================
+    // DRAG & DROP
+    // =========================================================
+
+    const handleDrop = (event) => {
+        event.preventDefault();
+        setDragging(false);
+
+        handleFiles(event.dataTransfer.files);
+    };
+
+    // =========================================================
+    // SUPPRIMER UN FICHIER
+    // =========================================================
+
+    const removeFile = (index) => {
+        const newFiles = files.filter(
+            (_, i) => i !== index
         );
-      }
 
-      // -----------------------------------------------------
-      // Colonnes finales
-      // -----------------------------------------------------
-      //
-      // On prend les colonnes du premier fichier comme
-      // référence.
-      //
-      // Si les autres fichiers possèdent des colonnes
-      // supplémentaires, elles sont également ajoutées.
-      //
-      // -----------------------------------------------------
+        setFiles(newFiles);
+        setResult(null);
+        setError("");
+    };
 
-      const finalHeaders = [];
+    // =========================================================
+    // DÉPLACER UN FICHIER VERS LE HAUT
+    // =========================================================
 
-      parsedFiles.forEach((file) => {
-        file.headers.forEach((header) => {
-          const exists =
-            finalHeaders.some(
-              (existing) =>
-                normalize(existing) ===
-                normalize(header)
+    const moveUp = (index) => {
+        if (index === 0) return;
+
+        const newFiles = [...files];
+
+        [
+            newFiles[index - 1],
+            newFiles[index],
+        ] = [
+                newFiles[index],
+                newFiles[index - 1],
+            ];
+
+        setFiles(newFiles);
+        setResult(null);
+    };
+
+    // =========================================================
+    // DÉPLACER UN FICHIER VERS LE BAS
+    // =========================================================
+
+    const moveDown = (index) => {
+        if (index === files.length - 1) return;
+
+        const newFiles = [...files];
+
+        [
+            newFiles[index],
+            newFiles[index + 1],
+        ] = [
+                newFiles[index + 1],
+                newFiles[index],
+            ];
+
+        setFiles(newFiles);
+        setResult(null);
+    };
+
+    // =========================================================
+    // LIRE UN FICHIER
+    // =========================================================
+
+    const readExcel = async (file) => {
+        const buffer =
+            await file.arrayBuffer();
+
+        const workbook =
+            XLSX.read(buffer, {
+                type: "array",
+                cellDates: true,
+            });
+
+        if (
+            !workbook.SheetNames ||
+            workbook.SheetNames.length === 0
+        ) {
+            throw new Error(
+                `Le fichier "${file.name}" ne contient aucune feuille.`
+            );
+        }
+
+        // Première feuille
+        const sheetName =
+            workbook.SheetNames[0];
+
+        const worksheet =
+            workbook.Sheets[sheetName];
+
+        // Lecture sous forme de tableau
+        const rows =
+            XLSX.utils.sheet_to_json(
+                worksheet,
+                {
+                    header: 1,
+                    defval: "",
+                    raw: false,
+                }
             );
 
-          if (
-            header &&
-            !exists
-          ) {
-            finalHeaders.push(
-              header
+        if (!rows.length) {
+            return {
+                fileName: file.name,
+                sheetName,
+                headers: [],
+                data: [],
+            };
+        }
+
+        // Première ligne = en-têtes
+        const headers =
+            rows[0].map((header) =>
+                String(header ?? "").trim()
             );
-          }
-        });
-      });
 
-      if (!finalHeaders.length) {
-        throw new Error(
-          "Aucune colonne n'a été trouvée dans les fichiers."
+        // Supprimer :
+        // 1. les lignes complètement vides
+        // 2. les lignes de Total
+        // 3. les lignes où seule "service social" est remplie
+
+        const serviceSocialIndex = headers.findIndex(
+            (header) =>
+                normalize(header) === "service social"
         );
-      }
 
-      // =====================================================
-      // CONSTRUCTION DES LIGNES
-      // =====================================================
+        const data = rows
+            .slice(1)
+            .filter((row) => {
+                // -------------------------------------------------------
+                // 1. Ligne complètement vide
+                // -------------------------------------------------------
+                const isEmpty = !row.some(
+                    (cell) =>
+                        String(cell ?? "").trim() !== ""
+                );
 
-      const mergedRows = [];
+                if (isEmpty) return false;
 
-      parsedFiles.forEach(
-        (file, fileIndex) => {
+                // -------------------------------------------------------
+                // 2. Ligne de Total
+                // -------------------------------------------------------
+                const firstCells = row
+                    .slice(0, 3)
+                    .map((cell) =>
+                        String(cell ?? "")
+                            .trim()
+                            .toLowerCase()
+                            .normalize("NFD")
+                            .replace(/[\u0300-\u036f]/g, "")
+                    )
+                    .join(" ");
 
-          file.data.forEach(
-            (row) => {
+                const isTotal =
+                    /\btotal\b/.test(firstCells) ||
+                    /\btotal general\b/.test(firstCells) ||
+                    /\bsomme\b/.test(firstCells);
 
-              const newRow = {};
+                if (isTotal) return false;
 
-              finalHeaders.forEach(
-                (header) => {
+                // -------------------------------------------------------
+                // 3. Seule la colonne "service social" est remplie
+                // -------------------------------------------------------
+                if (serviceSocialIndex !== -1) {
+                    const serviceSocialValue = String(
+                        row[serviceSocialIndex] ?? ""
+                    ).trim();
 
-                  // Trouver la colonne correspondante
-                  // dans le fichier actuel
-                  const columnIndex =
-                    file.headers.findIndex(
-                      (fileHeader) =>
-                        normalize(
-                          fileHeader
-                        ) ===
-                        normalize(
-                          header
-                        )
+                    const otherColumnsFilled = row.some(
+                        (cell, index) =>
+                            index !== serviceSocialIndex &&
+                            String(cell ?? "").trim() !== ""
                     );
 
-                  if (
-                    columnIndex !==
-                    -1
-                  ) {
-                    newRow[header] =
-                      row[
-                        columnIndex
-                      ] ?? "";
-                  } else {
-                    newRow[header] =
-                      "";
-                  }
+                    const onlyServiceSocialFilled =
+                        serviceSocialValue !== "" &&
+                        !otherColumnsFilled;
+
+                    if (onlyServiceSocialFilled) {
+                        return false;
+                    }
                 }
-              );
 
-              mergedRows.push(
-                newRow
-              );
-            }
-          );
+                return true;
+            });
+
+        return {
+            fileName: file.name,
+            sheetName,
+            headers,
+            data,
+        };
+    };
+
+    // =========================================================
+    // FUSION
+    // =========================================================
+
+    const mergeFiles = async () => {
+        if (files.length < 2) {
+            setError(
+                "Veuillez sélectionner au moins 2 fichiers."
+            );
+            return;
         }
-      );
 
-      // =====================================================
-      // CRÉATION DU FICHIER EXCEL
-      // =====================================================
+        setLoading(true);
+        setError("");
+        setResult(null);
 
-      const worksheet =
-        XLSX.utils.json_to_sheet(
-          mergedRows,
-          {
-            header:
-              finalHeaders,
-          }
-        );
+        try {
+            // -----------------------------------------------------
+            // Lecture de tous les fichiers
+            // -----------------------------------------------------
 
-      // =====================================================
-      // LARGEUR DES COLONNES
-      // =====================================================
+            const parsedFiles = [];
 
-      worksheet["!cols"] =
-        finalHeaders.map(
-          (header) => {
+            for (const file of files) {
+                const parsed =
+                    await readExcel(file);
 
-            let maxLength =
-              header.length;
-
-            for (
-              let i = 0;
-              i <
-                Math.min(
-                  mergedRows.length,
-                  1000
-                );
-              i++
-            ) {
-              const value =
-                mergedRows[i][
-                  header
-                ];
-
-              const length =
-                String(
-                  value ?? ""
-                ).length;
-
-              if (
-                length >
-                maxLength
-              ) {
-                maxLength =
-                  length;
-              }
+                parsedFiles.push(parsed);
             }
 
-            return {
-              wch: Math.min(
-                Math.max(
-                  maxLength + 2,
-                  10
-                ),
-                40
-              ),
-            };
-          }
-        );
+            // -----------------------------------------------------
+            // Vérifier qu'il existe au moins une colonne
+            // -----------------------------------------------------
 
-      // =====================================================
-      // WORKBOOK
-      // =====================================================
+            const validFiles =
+                parsedFiles.filter(
+                    (file) =>
+                        file.headers.length > 0
+                );
 
-      const workbook =
-        XLSX.utils.book_new();
+            if (!validFiles.length) {
+                throw new Error(
+                    "Les fichiers sélectionnés sont vides."
+                );
+            }
 
-      XLSX.utils.book_append_sheet(
-        workbook,
-        worksheet,
-        "Fusion"
-      );
+            // -----------------------------------------------------
+            // Colonnes finales
+            // -----------------------------------------------------
+            //
+            // On prend les colonnes du premier fichier comme
+            // référence.
+            //
+            // Si les autres fichiers possèdent des colonnes
+            // supplémentaires, elles sont également ajoutées.
+            //
+            // -----------------------------------------------------
 
-      // =====================================================
-      // TÉLÉCHARGEMENT
-      // =====================================================
+            const finalHeaders = [];
 
-      const outputFileName =
-        "fichiers_fusionnes.xlsx";
+            parsedFiles.forEach((file) => {
+                file.headers.forEach((header) => {
+                    const exists =
+                        finalHeaders.some(
+                            (existing) =>
+                                normalize(existing) ===
+                                normalize(header)
+                        );
 
-      XLSX.writeFile(
-        workbook,
-        outputFileName
-      );
+                    if (
+                        header &&
+                        !exists
+                    ) {
+                        finalHeaders.push(
+                            header
+                        );
+                    }
+                });
+            });
 
-      // =====================================================
-      // STATISTIQUES
-      // =====================================================
+            if (!finalHeaders.length) {
+                throw new Error(
+                    "Aucune colonne n'a été trouvée dans les fichiers."
+                );
+            }
 
-      const fileStats =
-        parsedFiles.map(
-          (file) => ({
-            name:
-              file.fileName,
-            rows:
-              file.data.length,
-          })
-        );
+            // =====================================================
+            // CONSTRUCTION DES LIGNES
+            // =====================================================
 
-      setResult({
-        totalFiles:
-          parsedFiles.length,
+            const mergedRows = [];
 
-        totalRows:
-          mergedRows.length,
+            parsedFiles.forEach(
+                (file, fileIndex) => {
 
-        headers:
-          finalHeaders,
+                    file.data.forEach(
+                        (row) => {
 
-        files:
-          fileStats,
+                            const newRow = {};
 
-        outputFileName,
-      });
+                            finalHeaders.forEach(
+                                (header) => {
 
-    } catch (err) {
-      console.error(err);
+                                    // Trouver la colonne correspondante
+                                    // dans le fichier actuel
+                                    const columnIndex =
+                                        file.headers.findIndex(
+                                            (fileHeader) =>
+                                                normalize(
+                                                    fileHeader
+                                                ) ===
+                                                normalize(
+                                                    header
+                                                )
+                                        );
 
-      setError(
-        err.message ||
-          "Une erreur est survenue pendant la fusion."
-      );
+                                    if (
+                                        columnIndex !==
+                                        -1
+                                    ) {
+                                        newRow[header] =
+                                            row[
+                                            columnIndex
+                                            ] ?? "";
+                                    } else {
+                                        newRow[header] =
+                                            "";
+                                    }
+                                }
+                            );
 
-    } finally {
-      setLoading(false);
-    }
-  };
+                            mergedRows.push(
+                                newRow
+                            );
+                        }
+                    );
+                }
+            );
 
-  // =========================================================
-  // RESET
-  // =========================================================
+            // =====================================================
+            // CRÉATION DU FICHIER EXCEL
+            // =====================================================
 
-  const reset = () => {
-    setFiles([]);
-    setResult(null);
-    setError("");
-    setLoading(false);
-  };
+            const worksheet =
+                XLSX.utils.json_to_sheet(
+                    mergedRows,
+                    {
+                        header:
+                            finalHeaders,
+                    }
+                );
 
-  // =========================================================
-  // FORMAT TAILLE
-  // =========================================================
+            // =====================================================
+            // LARGEUR DES COLONNES
+            // =====================================================
 
-  const formatNumber = (number) => {
-    return Number(
-      number || 0
-    ).toLocaleString("fr-FR");
-  };
+            worksheet["!cols"] =
+                finalHeaders.map(
+                    (header) => {
 
-  // =========================================================
-  // RENDU
-  // =========================================================
+                        let maxLength =
+                            header.length;
 
-  return (
-    <div className="page">
+                        for (
+                            let i = 0;
+                            i <
+                            Math.min(
+                                mergedRows.length,
+                                1000
+                            );
+                            i++
+                        ) {
+                            const value =
+                                mergedRows[i][
+                                header
+                                ];
 
-      <div className="sheet">
+                            const length =
+                                String(
+                                    value ?? ""
+                                ).length;
 
-        {/* =================================================
+                            if (
+                                length >
+                                maxLength
+                            ) {
+                                maxLength =
+                                    length;
+                            }
+                        }
+
+                        return {
+                            wch: Math.min(
+                                Math.max(
+                                    maxLength + 2,
+                                    10
+                                ),
+                                40
+                            ),
+                        };
+                    }
+                );
+
+            // =====================================================
+            // WORKBOOK
+            // =====================================================
+
+            const workbook =
+                XLSX.utils.book_new();
+
+            XLSX.utils.book_append_sheet(
+                workbook,
+                worksheet,
+                "Fusion"
+            );
+
+            // =====================================================
+            // TÉLÉCHARGEMENT
+            // =====================================================
+            const firstFileName =
+                parsedFiles[0]?.fileName || "fichiers_fusionnes.xlsx";
+
+            const outputFileName =
+                firstFileName.replace(/\.(xlsx|xls|csv)$/i, "") + ".xlsx";
+
+            XLSX.writeFile(
+                workbook,
+                outputFileName
+            );
+
+            // =====================================================
+            // STATISTIQUES
+            // =====================================================
+
+            const fileStats =
+                parsedFiles.map(
+                    (file) => ({
+                        name:
+                            file.fileName,
+                        rows:
+                            file.data.length,
+                    })
+                );
+
+            setResult({
+                totalFiles:
+                    parsedFiles.length,
+
+                totalRows:
+                    mergedRows.length,
+
+                headers:
+                    finalHeaders,
+
+                files:
+                    fileStats,
+
+                outputFileName,
+            });
+
+        } catch (err) {
+            console.error(err);
+
+            setError(
+                err.message ||
+                "Une erreur est survenue pendant la fusion."
+            );
+
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // =========================================================
+    // RESET
+    // =========================================================
+
+    const reset = () => {
+        setFiles([]);
+        setResult(null);
+        setError("");
+        setLoading(false);
+    };
+
+    // =========================================================
+    // FORMAT TAILLE
+    // =========================================================
+
+    const formatNumber = (number) => {
+        return Number(
+            number || 0
+        ).toLocaleString("fr-FR");
+    };
+
+    // =========================================================
+    // RENDU
+    // =========================================================
+
+    return (
+        <div className="page">
+
+            <div className="sheet">
+
+                {/* =================================================
             HEADER
         ================================================= */}
 
-        <header className="letterhead">
+                <header className="letterhead">
 
-          <div className="letterheadBar" />
+                    <div className="letterheadBar" />
 
-          <div className="letterheadText">
+                    <div className="letterheadText">
 
-            <span className="eyebrow">
-              Gestion des fichiers
-            </span>
+                        <span className="eyebrow">
+                            Gestion des fichiers
+                        </span>
 
-            <h1>
-              Fusionner des fichiers Excel
-            </h1>
+                        <h1>
+                            Fusionner des fichiers Excel
+                        </h1>
 
-            <p>
-              Sélectionnez deux ou trois fichiers
-              Excel pour les fusionner dans un seul
-              fichier, en conservant l'ordre de
-              sélection.
-            </p>
+                        <p>
+                            Sélectionnez deux ou trois fichiers
+                            Excel pour les fusionner dans un seul
+                            fichier, en conservant l'ordre de
+                            sélection.
+                        </p>
 
-          </div>
+                    </div>
 
-        </header>
+                </header>
 
-        {/* =================================================
+                {/* =================================================
             IMPORTATION
         ================================================= */}
 
-        <section className="uploadSection">
+                <section className="uploadSection">
 
-          <div className="sectionHeading">
+                    <div className="sectionHeading">
 
-            <div>
+                        <div>
 
-              <span className="sectionLabel">
-                01 — Fichiers
-              </span>
+                            <span className="sectionLabel">
+                                01 — Fichiers
+                            </span>
 
-              <h2>
-                Sélectionner 2 ou 3 fichiers
-              </h2>
+                            <h2>
+                                Sélectionner 2 ou 3 fichiers
+                            </h2>
 
-            </div>
+                        </div>
 
-            {files.length > 0 && (
-              <span className="fileCounter">
-                {files.length} / 3
-              </span>
-            )}
+                        {files.length > 0 && (
+                            <span className="fileCounter">
+                                {files.length} / 3
+                            </span>
+                        )}
 
-          </div>
+                    </div>
 
-          <label
-            className={`dropZone ${
-              dragging
-                ? "dragging"
-                : ""
-            }`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() =>
-              setDragging(false)
-            }
-            onDrop={handleDrop}
-          >
+                    <label
+                        className={`dropZone ${dragging
+                            ? "dragging"
+                            : ""
+                            }`}
+                        onDragOver={(e) => {
+                            e.preventDefault();
+                            setDragging(true);
+                        }}
+                        onDragLeave={() =>
+                            setDragging(false)
+                        }
+                        onDrop={handleDrop}
+                    >
 
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              multiple
-              onChange={handleFileChange}
-            />
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls,.csv"
+                            multiple
+                            onChange={handleFileChange}
+                        />
 
-            <div className="uploadIcon">
-              +
-            </div>
+                        <div className="uploadIcon">
+                            +
+                        </div>
 
-            <div className="uploadTitle">
-              Déposez vos fichiers Excel ici
-            </div>
+                        <div className="uploadTitle">
+                            Déposez un fichier Excel ici
+                        </div>
 
-            <div className="uploadText">
-              ou cliquez pour sélectionner 2 ou 3 fichiers
-            </div>
+                        <div className="uploadText">
+                            ou cliquez pour ajouter un fichier
+                        </div>
 
-            <div className="uploadFormats">
-              XLSX · XLS · CSV
-            </div>
+                        <div className="uploadFormats">
+                            XLSX · XLS · CSV
+                        </div>
 
-          </label>
+                    </label>
 
-          {/* =================================================
+                    {/* =================================================
               ERREUR
           ================================================= */}
 
-          {error && (
+                    {error && (
 
-            <div className="error">
+                        <div className="error">
 
-              <div className="errorTitle">
-                Impossible de continuer
-              </div>
+                            <div className="errorTitle">
+                                Impossible de continuer
+                            </div>
 
-              <div className="errorText">
-                {error}
-              </div>
+                            <div className="errorText">
+                                {error}
+                            </div>
 
-            </div>
+                        </div>
 
-          )}
+                    )}
 
-        </section>
+                </section>
 
-        {/* =================================================
+                {/* =================================================
             LISTE DES FICHIERS
         ================================================= */}
 
-        {files.length > 0 && (
+                {files.length > 0 && (
 
-          <section className="filesSection">
+                    <section className="filesSection">
 
-            <div className="sectionHeading">
+                        <div className="sectionHeading">
 
-              <div>
+                            <div>
 
-                <span className="sectionLabel">
-                  02 — Ordre de fusion
-                </span>
+                                <span className="sectionLabel">
+                                    02 — Ordre de fusion
+                                </span>
 
-                <h2>
-                  Fichiers sélectionnés
-                </h2>
+                                <h2>
+                                    Fichiers sélectionnés
+                                </h2>
 
-              </div>
+                            </div>
 
-            </div>
+                        </div>
 
-            <div className="fileList">
+                        <div className="fileList">
 
-              {files.map(
-                (file, index) => (
+                            {files.map(
+                                (file, index) => (
 
-                  <div
-                    className="fileItem"
-                    key={`${file.name}-${index}`}
-                  >
+                                    <div
+                                        className="fileItem"
+                                        key={`${file.name}-${index}`}
+                                    >
 
-                    <div className="fileNumber">
-                      {index + 1}
-                    </div>
+                                        <div className="fileNumber">
+                                            {index + 1}
+                                        </div>
 
-                    <div className="excelIcon">
-                      XLS
-                    </div>
+                                        <div className="excelIcon">
+                                            XLS
+                                        </div>
 
-                    <div className="fileDetails">
+                                        <div className="fileDetails">
 
-                      <strong>
-                        {file.name}
-                      </strong>
+                                            <strong>
+                                                {file.name}
+                                            </strong>
 
-                      <span>
-                        {(
-                          file.size /
-                          1024
-                        ).toFixed(1)}{" "}
-                        Ko
-                      </span>
+                                            <span>
+                                                {(
+                                                    file.size /
+                                                    1024
+                                                ).toFixed(1)}{" "}
+                                                Ko
+                                            </span>
 
-                    </div>
+                                        </div>
 
-                    <div className="fileActions">
+                                        <div className="fileActions">
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          moveUp(index)
-                        }
-                        disabled={
-                          index === 0
-                        }
-                        title="Déplacer vers le haut"
-                      >
-                        ↑
-                      </button>
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    moveUp(index)
+                                                }
+                                                disabled={
+                                                    index === 0
+                                                }
+                                                title="Déplacer vers le haut"
+                                            >
+                                                ↑
+                                            </button>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          moveDown(index)
-                        }
-                        disabled={
-                          index ===
-                          files.length - 1
-                        }
-                        title="Déplacer vers le bas"
-                      >
-                        ↓
-                      </button>
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    moveDown(index)
+                                                }
+                                                disabled={
+                                                    index ===
+                                                    files.length - 1
+                                                }
+                                                title="Déplacer vers le bas"
+                                            >
+                                                ↓
+                                            </button>
 
-                      <button
-                        type="button"
-                        className="remove"
-                        onClick={() =>
-                          removeFile(index)
-                        }
-                        title="Supprimer"
-                      >
-                        ×
-                      </button>
+                                            <button
+                                                type="button"
+                                                className="remove"
+                                                onClick={() =>
+                                                    removeFile(index)
+                                                }
+                                                title="Supprimer"
+                                            >
+                                                ×
+                                            </button>
 
-                    </div>
+                                        </div>
 
-                  </div>
+                                    </div>
 
-                )
-              )}
+                                )
+                            )}
 
-            </div>
+                        </div>
 
-            <div className="orderInfo">
+                        <div className="orderInfo">
 
-              <span>
-                Ordre de fusion :
-              </span>
+                            <span>
+                                Ordre de fusion :
+                            </span>
 
-              <strong>
-                {files
-                  .map(
-                    (_, index) =>
-                      `Excel ${index + 1}`
-                  )
-                  .join(" → ")}
-              </strong>
+                            <strong>
+                                {files
+                                    .map(
+                                        (_, index) =>
+                                            `Excel ${index + 1}`
+                                    )
+                                    .join(" → ")}
+                            </strong>
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 BOUTON FUSION
             ================================================= */}
 
-            <button
-              type="button"
-              className="mergeBtn"
-              onClick={mergeFiles}
-              disabled={
-                files.length < 2 ||
-                loading
-              }
-            >
+                        <button
+                            type="button"
+                            className="mergeBtn"
+                            onClick={mergeFiles}
+                            disabled={
+                                files.length < 2 ||
+                                loading
+                            }
+                        >
 
-              {loading
-                ? "Fusion en cours..."
-                : "↓ Fusionner et télécharger"}
+                            {loading
+                                ? "Fusion en cours..."
+                                : "↓ Fusionner et télécharger"}
 
-            </button>
+                        </button>
 
-          </section>
+                    </section>
 
-        )}
+                )}
 
-        {/* =================================================
+                {/* =================================================
             RÉSULTAT
         ================================================= */}
 
-        {result && (
+                {result && (
 
-          <section className="resultsSection">
+                    <section className="resultsSection">
 
-            <div className="resultHeader">
+                        <div className="resultHeader">
 
-              <div>
+                            <div>
 
-                <span className="sectionLabel">
-                  03 — Résultat
-                </span>
+                                <span className="sectionLabel">
+                                    03 — Résultat
+                                </span>
 
-                <h2>
-                  Fusion terminée
-                </h2>
+                                <h2>
+                                    Fusion terminée
+                                </h2>
 
-              </div>
+                            </div>
 
-              <button
-                type="button"
-                className="resetBtn"
-                onClick={reset}
-              >
-                Nouvelle fusion
-              </button>
+                            <button
+                                type="button"
+                                className="resetBtn"
+                                onClick={reset}
+                            >
+                                Nouvelle fusion
+                            </button>
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 STATS
             ================================================= */}
 
-            <div className="statsGrid">
+                        <div className="statsGrid">
 
-              <div className="statCard">
+                            <div className="statCard">
 
-                <span>
-                  Fichiers fusionnés
-                </span>
+                                <span>
+                                    Fichiers fusionnés
+                                </span>
 
-                <strong>
-                  {result.totalFiles}
-                </strong>
+                                <strong>
+                                    {result.totalFiles}
+                                </strong>
 
-                <small>
-                  fichiers Excel
-                </small>
+                                <small>
+                                    fichiers Excel
+                                </small>
 
-              </div>
+                            </div>
 
-              <div className="statCard">
+                            <div className="statCard">
 
-                <span>
-                  Total des lignes
-                </span>
+                                <span>
+                                    Total des lignes
+                                </span>
 
-                <strong>
-                  {formatNumber(
-                    result.totalRows
-                  )}
-                </strong>
+                                <strong>
+                                    {formatNumber(
+                                        result.totalRows
+                                    )}
+                                </strong>
 
-                <small>
-                  après fusion
-                </small>
+                                <small>
+                                    après fusion
+                                </small>
 
-              </div>
+                            </div>
 
-              <div className="statCard">
+                            <div className="statCard">
 
-                <span>
-                  Colonnes
-                </span>
+                                <span>
+                                    Colonnes
+                                </span>
 
-                <strong>
-                  {result.headers.length}
-                </strong>
+                                <strong>
+                                    {result.headers.length}
+                                </strong>
 
-                <small>
-                  colonnes finales
-                </small>
+                                <small>
+                                    colonnes finales
+                                </small>
 
-              </div>
+                            </div>
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 DÉTAIL DES FICHIERS
             ================================================= */}
 
-            <div className="detailsBox">
+                        <div className="detailsBox">
 
-              <div className="detailsTitle">
-                Répartition des lignes
-              </div>
+                            <div className="detailsTitle">
+                                Répartition des lignes
+                            </div>
 
-              {result.files.map(
-                (file, index) => (
+                            {result.files.map(
+                                (file, index) => (
 
-                  <div
-                    className="detailRow"
-                    key={`${file.name}-${index}`}
-                  >
+                                    <div
+                                        className="detailRow"
+                                        key={`${file.name}-${index}`}
+                                    >
 
-                    <div className="detailLeft">
+                                        <div className="detailLeft">
 
-                      <span className="detailNumber">
-                        {index + 1}
-                      </span>
+                                            <span className="detailNumber">
+                                                {index + 1}
+                                            </span>
 
-                      <span>
-                        {file.name}
-                      </span>
+                                            <span>
+                                                {file.name}
+                                            </span>
 
-                    </div>
+                                        </div>
 
-                    <strong>
-                      {formatNumber(
-                        file.rows
-                      )}{" "}
-                      ligne
-                      {file.rows !== 1
-                        ? "s"
-                        : ""}
-                    </strong>
+                                        <strong>
+                                            {formatNumber(
+                                                file.rows
+                                            )}{" "}
+                                            ligne
+                                            {file.rows !== 1
+                                                ? "s"
+                                                : ""}
+                                        </strong>
 
-                  </div>
+                                    </div>
 
-                )
-              )}
+                                )
+                            )}
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 FICHIER GÉNÉRÉ
             ================================================= */}
 
-            <div className="outputCard">
+                        <div className="outputCard">
 
-              <div className="outputTop">
+                            <div className="outputTop">
 
-                <div className="excelIcon">
-                  XLS
-                </div>
+                                <div className="excelIcon">
+                                    XLS
+                                </div>
 
-                <div>
+                                <div>
 
-                  <h3>
-                    Fichier fusionné
-                  </h3>
+                                    <h3>
+                                        Fichier fusionné
+                                    </h3>
 
-                  <p>
-                    {result.outputFileName}
-                  </p>
+                                    <p>
+                                        {result.outputFileName}
+                                    </p>
 
-                </div>
+                                </div>
 
-              </div>
+                            </div>
 
-              <div className="outputCount">
+                            <div className="outputCount">
 
-                {formatNumber(
-                  result.totalRows
-                )}{" "}
-                lignes
+                                {formatNumber(
+                                    result.totalRows
+                                )}{" "}
+                                lignes
 
-              </div>
+                            </div>
 
-              <div className="outputInfo">
-                Le fichier a été téléchargé automatiquement.
-              </div>
+                            <div className="outputInfo">
+                                Le fichier a été téléchargé automatiquement.
+                            </div>
 
-            </div>
+                        </div>
 
-            {/* =================================================
+                        {/* =================================================
                 COLONNES
             ================================================= */}
 
-            <div className="columnsInfo">
+                        <div className="columnsInfo">
 
-              <div className="columnsTitle">
-                Colonnes du fichier final
-              </div>
+                            <div className="columnsTitle">
+                                Colonnes du fichier final
+                            </div>
 
-              <div className="columnsList">
+                            <div className="columnsList">
 
-                {result.headers.map(
-                  (header) => (
+                                {result.headers.map(
+                                    (header) => (
 
-                    <span
-                      key={header}
-                    >
-                      {header}
-                    </span>
+                                        <span
+                                            key={header}
+                                        >
+                                            {header}
+                                        </span>
 
-                  )
+                                    )
+                                )}
+
+                            </div>
+
+                        </div>
+
+                    </section>
+
                 )}
 
-              </div>
-
-            </div>
-
-          </section>
-
-        )}
-
-        {/* =================================================
+                {/* =================================================
             EMPTY STATE
         ================================================= */}
 
-        {files.length === 0 &&
-          !result &&
-          !loading &&
-          !error && (
+                {files.length === 0 &&
+                    !result &&
+                    !loading &&
+                    !error && (
 
-            <div className="emptyState">
+                        <div className="emptyState">
 
-              <div className="emptyIcon">
-                XLS
-              </div>
+                            <div className="emptyIcon">
+                                XLS
+                            </div>
 
-              <h3>
-                Aucun fichier sélectionné
-              </h3>
+                            <h3>
+                                Aucun fichier sélectionné
+                            </h3>
 
-              <p>
-                Sélectionnez 2 ou 3 fichiers Excel
-                pour commencer.
-              </p>
+                            <p>
+                                Sélectionnez 2 ou 3 fichiers Excel
+                                pour commencer.
+                            </p>
+
+                        </div>
+
+                    )}
 
             </div>
 
-          )}
-
-      </div>
-
-      {/* =====================================================
+            {/* =====================================================
           STYLE
       ===================================================== */}
 
-      <style jsx>{`
+            <style jsx>{`
 
         .page {
           min-height: 100vh;
@@ -1663,6 +1728,6 @@ export default function MergePage() {
 
       `}</style>
 
-    </div>
-  );
+        </div>
+    );
 }
