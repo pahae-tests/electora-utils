@@ -6,7 +6,6 @@ import * as XLSX from "xlsx";
 import {
     FileSpreadsheet,
     Download,
-    Search,
     FolderOpen,
     Plus,
     X,
@@ -15,85 +14,68 @@ import {
 } from "lucide-react";
 
 // =========================================================
-// LECTURE DES DOSSIERS PUBLIC/MOLTAQA ET PUBLIC/SOCIAL
+// LECTURE DES FICHIERS EXCEL DIRECTEMENT DANS /PUBLIC
 // =========================================================
 
-const DOSSIERS = [
-    { key: "moltaqa", label: "Moltaqa", dir: "Moltaqa" },
-    { key: "social", label: "Social", dir: "Social" },
-];
-
-function listerFichiersExcel(dirAbsolu) {
+function listerFichiersExcel(publicDir) {
     try {
         return fs
-            .readdirSync(dirAbsolu)
+            .readdirSync(publicDir)
             .filter((f) => /\.xlsx?$/i.test(f))
             .sort((a, b) => a.localeCompare(b, "fr"));
     } catch (err) {
-        // Le dossier n'existe pas encore : on ne casse pas la page.
         return [];
     }
 }
 
-// Un fichier est considéré comme "vide" s'il pèse 0 octet, s'il n'a
-// aucune feuille, ou si aucune de ses feuilles ne contient de ligne de
-// données (au-delà d'un éventuel en-tête).
+// Un fichier est considéré comme vide s'il n'a aucune donnée exploitable.
 function excelEstVide(cheminAbsolu) {
     try {
         const stat = fs.statSync(cheminAbsolu);
         if (stat.size === 0) return true;
 
         const classeur = XLSX.readFile(cheminAbsolu);
-        if (!classeur.SheetNames || classeur.SheetNames.length === 0) return true;
+
+        if (!classeur.SheetNames || classeur.SheetNames.length === 0) {
+            return true;
+        }
 
         return classeur.SheetNames.every((nomFeuille) => {
             const feuille = classeur.Sheets[nomFeuille];
+
             const lignes = XLSX.utils.sheet_to_json(feuille, {
                 header: 1,
                 blankrows: false,
             });
-            // 0 ligne = feuille totalement vide. 1 seule ligne = probablement
-            // juste la ligne d'en-têtes, sans aucune donnée exploitable.
+
             return lignes.length <= 1;
         });
     } catch (err) {
-        // Fichier illisible/corrompu : on le traite comme indisponible.
         return true;
     }
 }
 
+// =========================================================
+// SERVER SIDE
+// =========================================================
+
 export async function getServerSideProps() {
     const publicDir = path.join(process.cwd(), "public");
 
-    const fichiersParDossier = {};
-    DOSSIERS.forEach(({ key, dir }) => {
-        fichiersParDossier[key] = listerFichiersExcel(path.join(publicDir, dir));
-    });
+    const fichiers = listerFichiersExcel(publicDir);
 
-    // Fusionne les deux listes par nom de parrain (nom du fichier sans extension).
-    const parrainsMap = new Map();
+    const fichiersExcel = fichiers.map((nomFichier) => ({
+        nomFichier,
+        nomParrain: nomFichier.replace(/\.xlsx?$/i, "").trim(),
+        url: `/${nomFichier}`,
+        vide: excelEstVide(path.join(publicDir, nomFichier)),
+    }));
 
-    DOSSIERS.forEach(({ key, dir }) => {
-        fichiersParDossier[key].forEach((fichier) => {
-            const nomParrain = fichier.replace(/\.xlsx?$/i, "").trim();
-            const cheminAbsolu = path.join(publicDir, dir, fichier);
-
-            if (!parrainsMap.has(nomParrain)) {
-                parrainsMap.set(nomParrain, { nom: nomParrain });
-            }
-
-            parrainsMap.get(nomParrain)[key] = {
-                url: `/${dir}/${fichier}`,
-                vide: excelEstVide(cheminAbsolu),
-            };
-        });
-    });
-
-    const parrains = Array.from(parrainsMap.values()).sort((a, b) =>
-        a.nom.localeCompare(b.nom, "fr")
-    );
-
-    return { props: { parrains } };
+    return {
+        props: {
+            fichiersExcel,
+        },
+    };
 }
 
 // =========================================================
@@ -114,28 +96,25 @@ function sanitizeFileName(name) {
         .replace(/[\\/:*?"<>|]/g, "")
         .replace(/\s+/g, " ")
         .trim();
+
     return cleaned || "export";
 }
 
-// Nom du fichier téléchargé : "<parrain>_<moltaqa|social>.xlsx"
-function nomTelechargement(parrain, type) {
-    return `${sanitizeFileName(parrain)}_${type}.xlsx`;
-}
-
-// Un fichier est "disponible" au téléchargement s'il existe ET n'est pas vide.
 function estDisponible(fichier) {
     return Boolean(fichier) && !fichier.vide;
 }
 
-// Classe CSS du badge : présent + rempli / présent mais vide / absent.
-function badgeClasse(fichier, disponible) {
-    if (disponible) return "badgeOn";
-    if (fichier) return "badgeEmpty";
-    return "badgeOff";
-}
+// =========================================================
+// TÉLÉCHARGEMENT
+// =========================================================
 
 async function telechargerUnFichier(url, nomFichier) {
     const response = await fetch(url);
+
+    if (!response.ok) {
+        throw new Error("Impossible de télécharger le fichier.");
+    }
+
     const blob = await response.blob();
     const blobUrl = URL.createObjectURL(blob);
 
@@ -149,34 +128,12 @@ async function telechargerUnFichier(url, nomFichier) {
     URL.revokeObjectURL(blobUrl);
 }
 
-async function telechargerPlusieurs(fichiers) {
-    for (const { url, nomFichier } of fichiers) {
-        await telechargerUnFichier(url, nomFichier);
-    }
-}
-
-// Lit un fichier <input type="file"> et le convertit en base64 (sans le
-// préfixe "data:...;base64,") pour pouvoir l'envoyer en JSON à l'API.
-function fichierVersBase64(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            const resultat = String(reader.result || "");
-            const base64 = resultat.split(",")[1] || "";
-            resolve(base64);
-        };
-        reader.onerror = () => reject(new Error("Impossible de lire le fichier."));
-        reader.readAsDataURL(file);
-    });
-}
-
 // =========================================================
-// MODALE D'AJOUT D'UN PARRAIN
+// MODALE D'AJOUT D'UN FICHIER
 // =========================================================
 
 function ModaleAjout({ onClose, onSuccess }) {
-    const [fichiersMoltaqa, setFichiersMoltaqa] = useState([]);
-    const [fichiersSocial, setFichiersSocial] = useState([]);
+    const [fichier, setFichier] = useState(null);
     const [envoiEnCours, setEnvoiEnCours] = useState(false);
     const [erreur, setErreur] = useState("");
 
@@ -184,45 +141,39 @@ function ModaleAjout({ onClose, onSuccess }) {
         e.preventDefault();
         setErreur("");
 
-        if (
-            fichiersMoltaqa.length === 0 &&
-            fichiersSocial.length === 0
-        ) {
-            setErreur(
-                "Ajoutez au moins un fichier Moltaqa ou Social."
-            );
+        if (!fichier) {
+            setErreur("Sélectionnez un fichier Excel.");
             return;
         }
 
         setEnvoiEnCours(true);
 
         try {
+            const reader = new FileReader();
+
+            const dataBase64 = await new Promise((resolve, reject) => {
+                reader.onload = () => {
+                    const resultat = String(reader.result || "");
+                    resolve(resultat.split(",")[1] || "");
+                };
+
+                reader.onerror = () => {
+                    reject(
+                        new Error("Impossible de lire le fichier.")
+                    );
+                };
+
+                reader.readAsDataURL(fichier);
+            });
+
             const payload = {
-                moltaqa: [],
-                social: [],
+                fichiers: [
+                    {
+                        nomFichier: fichier.name,
+                        data: dataBase64,
+                    },
+                ],
             };
-
-            // =========================
-            // MOLTAQA
-            // =========================
-
-            for (const fichier of fichiersMoltaqa) {
-                payload.moltaqa.push({
-                    nomFichier: fichier.name,
-                    data: await fichierVersBase64(fichier),
-                });
-            }
-
-            // =========================
-            // SOCIAL
-            // =========================
-
-            for (const fichier of fichiersSocial) {
-                payload.social.push({
-                    nomFichier: fichier.name,
-                    data: await fichierVersBase64(fichier),
-                });
-            }
 
             const res = await fetch("/api/excels/add", {
                 method: "POST",
@@ -236,8 +187,7 @@ function ModaleAjout({ onClose, onSuccess }) {
 
             if (!res.ok) {
                 throw new Error(
-                    data.error ||
-                    "Une erreur est survenue."
+                    data.error || "Une erreur est survenue."
                 );
             }
 
@@ -245,7 +195,7 @@ function ModaleAjout({ onClose, onSuccess }) {
         } catch (err) {
             setErreur(
                 err.message ||
-                "Une erreur est survenue."
+                    "Une erreur est survenue."
             );
         } finally {
             setEnvoiEnCours(false);
@@ -262,7 +212,7 @@ function ModaleAjout({ onClose, onSuccess }) {
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="modalHeader">
-                    <h2>Ajouter des fichiers Excel</h2>
+                    <h2>Ajouter un fichier Excel</h2>
 
                     <button
                         type="button"
@@ -281,89 +231,37 @@ function ModaleAjout({ onClose, onSuccess }) {
                     onSubmit={handleSubmit}
                     className="modalForm"
                 >
-                    {/* =========================
-                        MOLTAQA
-                    ========================= */}
-
                     <label className="fieldLabel">
-                        Fichiers Moltaqa
+                        Fichier Excel
 
                         <input
                             type="file"
                             accept=".xlsx,.xls"
-                            multiple
                             onChange={(e) =>
-                                setFichiersMoltaqa(
-                                    Array.from(
-                                        e.target.files || []
-                                    )
+                                setFichier(
+                                    e.target.files?.[0] || null
                                 )
                             }
                         />
 
-                        {fichiersMoltaqa.length > 0 && (
+                        {fichier && (
                             <div className="selectedFiles">
-                                {fichiersMoltaqa.map(
-                                    (fichier, index) => (
-                                        <div
-                                            key={`${fichier.name}-${index}`}
-                                            className="selectedFile"
-                                        >
-                                            <FileSpreadsheet
-                                                size={14}
-                                            />
+                                <div className="selectedFile">
+                                    <FileSpreadsheet
+                                        size={14}
+                                    />
 
-                                            <span>
-                                                {fichier.name}
-                                            </span>
-                                        </div>
-                                    )
-                                )}
+                                    <span>
+                                        {fichier.name}
+                                    </span>
+                                </div>
                             </div>
                         )}
                     </label>
 
-                    {/* =========================
-                        SOCIAL
-                    ========================= */}
-
-                    <label className="fieldLabel">
-                        Fichiers Social
-
-                        <input
-                            type="file"
-                            accept=".xlsx,.xls"
-                            multiple
-                            onChange={(e) =>
-                                setFichiersSocial(
-                                    Array.from(
-                                        e.target.files || []
-                                    )
-                                )
-                            }
-                        />
-
-                        {fichiersSocial.length > 0 && (
-                            <div className="selectedFiles">
-                                {fichiersSocial.map(
-                                    (fichier, index) => (
-                                        <div
-                                            key={`${fichier.name}-${index}`}
-                                            className="selectedFile"
-                                        >
-                                            <FileSpreadsheet
-                                                size={14}
-                                            />
-
-                                            <span>
-                                                {fichier.name}
-                                            </span>
-                                        </div>
-                                    )
-                                )}
-                            </div>
-                        )}
-                    </label>
+                    <p className="modalHint">
+                        Le nom du fichier sera utilisé comme nom du parrain.
+                    </p>
 
                     {erreur && (
                         <p className="modalErreur">
@@ -401,7 +299,7 @@ function ModaleAjout({ onClose, onSuccess }) {
 
                             {envoiEnCours
                                 ? "Ajout..."
-                                : "Ajouter les fichiers"}
+                                : "Ajouter le fichier"}
                         </button>
                     </div>
                 </form>
@@ -483,8 +381,6 @@ function ModaleAjout({ onClose, onSuccess }) {
                     display: flex;
                     flex-direction: column;
                     gap: 5px;
-                    max-height: 150px;
-                    overflow-y: auto;
                     padding: 8px;
                     background: #fbfaf8;
                     border: 1px solid #e0ddd4;
@@ -514,6 +410,13 @@ function ModaleAjout({ onClose, onSuccess }) {
                     white-space: nowrap;
                 }
 
+                .modalHint {
+                    margin: 0;
+                    font-size: 12px;
+                    line-height: 1.5;
+                    color: #8a8378;
+                }
+
                 .modalErreur {
                     margin: 0;
                     font-size: 13px;
@@ -529,6 +432,42 @@ function ModaleAjout({ onClose, onSuccess }) {
                     justify-content: flex-end;
                     gap: 8px;
                     margin-top: 4px;
+                }
+
+                .actionBtn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    background: #ffffff;
+                    border: 1px solid #d7d2c6;
+                    color: #1f3a5f;
+                    border-radius: 4px;
+                    padding: 7px 12px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    text-decoration: none;
+                    font-family: inherit;
+                }
+
+                .actionBtn:hover:not(:disabled) {
+                    background: #eef2f6;
+                }
+
+                .actionBtnPrimary {
+                    background: #1f3a5f;
+                    border-color: #1f3a5f;
+                    color: #ffffff;
+                }
+
+                .actionBtnPrimary:hover:not(:disabled) {
+                    background: #16293f !important;
+                }
+
+                .actionBtn:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
                 }
 
                 .spin {
@@ -553,49 +492,86 @@ function ModaleAjout({ onClose, onSuccess }) {
 // PAGE
 // =========================================================
 
-export default function ExcelsPage({ parrains }) {
+export default function ExcelsPage({ fichiersExcel }) {
     const router = useRouter();
+
     const [search, setSearch] = useState("");
     const [modaleOuverte, setModaleOuverte] = useState(false);
-    const [suppressionEnCours, setSuppressionEnCours] = useState(null);
+    const [suppressionEnCours, setSuppressionEnCours] =
+        useState(null);
 
-    const parrainsFiltres = useMemo(() => {
+    const fichiersFiltres = useMemo(() => {
         const q = normaliser(search);
-        if (!q) return parrains;
-        return parrains.filter((p) => normaliser(p.nom).includes(q));
-    }, [parrains, search]);
 
-    const totalMoltaqa = parrains.filter((p) => estDisponible(p.moltaqa)).length;
-    const totalSocial = parrains.filter((p) => estDisponible(p.social)).length;
-    const totalComplet = parrains.filter(
-        (p) => estDisponible(p.moltaqa) && estDisponible(p.social)
+        if (!q) return fichiersExcel;
+
+        return fichiersExcel.filter((fichier) =>
+            normaliser(fichier.nomParrain).includes(q)
+        );
+    }, [fichiersExcel, search]);
+
+    const totalFichiers = fichiersExcel.length;
+
+    const totalDisponibles = fichiersExcel.filter(
+        (fichier) => estDisponible(fichier)
     ).length;
 
-    // Redemande les données au serveur (getServerSideProps) sans rechargement complet.
+    const totalVides = fichiersExcel.filter(
+        (fichier) => fichier.vide
+    ).length;
+
     function rafraichir() {
-        router.replace(router.asPath, undefined, { scroll: false });
+        router.replace(
+            router.asPath,
+            undefined,
+            { scroll: false }
+        );
     }
 
-    async function handleSupprimer(nomParrain) {
+    async function handleSupprimer(fichier) {
         const confirme = window.confirm(
-            `Supprimer définitivement "${nomParrain}" (fichiers Moltaqa et Social) ?`
+            `Supprimer définitivement le fichier "${fichier.nomFichier}" ?`
         );
+
         if (!confirme) return;
 
-        setSuppressionEnCours(nomParrain);
+        setSuppressionEnCours(
+            fichier.nomFichier
+        );
+
         try {
-            const res = await fetch("/api/excels/delete", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ nom: nomParrain }),
-            });
-            const data = await res.json().catch(() => ({}));
+            const res = await fetch(
+                "/api/excels/delete",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        nomFichier:
+                            fichier.nomFichier,
+                    }),
+                }
+            );
+
+            const data =
+                await res
+                    .json()
+                    .catch(() => ({}));
+
             if (!res.ok) {
-                throw new Error(data.error || "Erreur lors de la suppression.");
+                throw new Error(
+                    data.error ||
+                        "Erreur lors de la suppression."
+                );
             }
+
             rafraichir();
         } catch (err) {
-            window.alert(err.message || "Erreur lors de la suppression.");
+            window.alert(
+                err.message ||
+                    "Erreur lors de la suppression."
+            );
         } finally {
             setSuppressionEnCours(null);
         }
@@ -604,165 +580,236 @@ export default function ExcelsPage({ parrains }) {
     return (
         <div className="page">
             <div className="sheet">
+                {/* HEADER */}
                 <header className="letterhead">
                     <div className="letterheadBar" />
+
                     <div className="letterheadText">
-                        <span className="eyebrow">Dossiers Excel</span>
-                        <h1>Fichiers par parrain</h1>
-                        <p>Retrouvez et téléchargez les fichiers Moltaqa et Social de chaque parrain.</p>
+                        <span className="eyebrow">
+                            Dossiers Excel
+                        </span>
+
+                        <h1>
+                            Fichiers par parrain
+                        </h1>
+
+                        <p>
+                            Tous les fichiers Excel présents
+                            directement dans le dossier public.
+                        </p>
                     </div>
                 </header>
 
+                {/* STATS */}
                 <section className="statsRow">
                     <div className="statCard">
-                        <span className="statValue">{parrains.length}</span>
-                        <span className="statLabel">Parrains</span>
+                        <span className="statValue">
+                            {totalFichiers}
+                        </span>
+
+                        <span className="statLabel">
+                            Fichiers
+                        </span>
                     </div>
+
                     <div className="statCard">
-                        <span className="statValue">{totalMoltaqa}</span>
-                        <span className="statLabel">Moltaqa</span>
+                        <span className="statValue">
+                            {totalDisponibles}
+                        </span>
+
+                        <span className="statLabel">
+                            Disponibles
+                        </span>
                     </div>
+
                     <div className="statCard">
-                        <span className="statValue">{totalSocial}</span>
-                        <span className="statLabel">Social</span>
-                    </div>
-                    <div className="statCard">
-                        <span className="statValue">{totalComplet}</span>
-                        <span className="statLabel">Complets</span>
+                        <span className="statValue">
+                            {totalVides}
+                        </span>
+
+                        <span className="statLabel">
+                            Vides
+                        </span>
                     </div>
                 </section>
 
+                {/* RECHERCHE */}
                 <section className="searchSection">
                     <div className="searchRow">
                         <div className="searchBox">
-                            {/* <Search size={16} strokeWidth={2} className="searchIcon" /> */}
                             <input
                                 type="text"
                                 placeholder="Rechercher un parrain..."
                                 value={search}
-                                onChange={(e) => setSearch(e.target.value)}
+                                onChange={(e) =>
+                                    setSearch(
+                                        e.target.value
+                                    )
+                                }
                             />
                         </div>
+
                         <button
-                            disabled
                             type="button"
                             className="actionBtn actionBtnPrimary addBtn"
-                            onClick={() => setModaleOuverte(true)}
+                            onClick={() =>
+                                setModaleOuverte(true)
+                            }
                         >
-                            <Plus size={14} strokeWidth={2} />
-                            Ajouter des fichiers (en cours de developpement att)
+                            <Plus
+                                size={14}
+                                strokeWidth={2}
+                            />
+
+                            Ajouter un fichier
                         </button>
                     </div>
                 </section>
 
+                {/* LISTE */}
                 <section className="listSection">
-                    {parrainsFiltres.length === 0 ? (
+                    {fichiersFiltres.length === 0 ? (
                         <div className="empty">
-                            <FolderOpen size={30} strokeWidth={1.6} />
+                            <FolderOpen
+                                size={30}
+                                strokeWidth={1.6}
+                            />
+
                             <p>
-                                {parrains.length === 0
-                                    ? "Aucun fichier trouvé dans les dossiers Moltaqa ou Social."
-                                    : "Aucun parrain ne correspond à votre recherche."}
+                                {fichiersExcel.length === 0
+                                    ? "Aucun fichier Excel trouvé dans le dossier public."
+                                    : "Aucun fichier ne correspond à votre recherche."}
                             </p>
                         </div>
                     ) : (
                         <div className="parrainList">
-                            {parrainsFiltres.map((p) => {
-                                const moltaqaOk = estDisponible(p.moltaqa);
-                                const socialOk = estDisponible(p.social);
-                                const nbDisponibles = (moltaqaOk ? 1 : 0) + (socialOk ? 1 : 0);
-                                const enSuppression = suppressionEnCours === p.nom;
+                            {fichiersFiltres.map(
+                                (fichier) => {
+                                    const disponible =
+                                        estDisponible(
+                                            fichier
+                                        );
 
-                                const fichiersATelecharger = [
-                                    moltaqaOk && {
-                                        url: p.moltaqa.url,
-                                        nomFichier: nomTelechargement(p.nom, "moltaqa"),
-                                    },
-                                    socialOk && {
-                                        url: p.social.url,
-                                        nomFichier: nomTelechargement(p.nom, "social"),
-                                    },
-                                ].filter(Boolean);
+                                    const enSuppression =
+                                        suppressionEnCours ===
+                                        fichier.nomFichier;
 
-                                let libelleCombine = "Les deux";
-                                if (nbDisponibles === 0) libelleCombine = "Indisponible";
-                                else if (nbDisponibles === 1) libelleCombine = "Télécharger le disponible";
+                                    return (
+                                        <div
+                                            key={
+                                                fichier.nomFichier
+                                            }
+                                            className="parrainCard"
+                                        >
+                                            <div className="parrainInfo">
+                                                <div className="parrainIcon">
+                                                    <FileSpreadsheet
+                                                        size={18}
+                                                        strokeWidth={
+                                                            1.8
+                                                        }
+                                                    />
+                                                </div>
 
-                                return (
-                                    <div key={p.nom} className="parrainCard">
-                                        <div className="parrainInfo">
-                                            <div className="parrainIcon">
-                                                <FileSpreadsheet size={18} strokeWidth={1.8} />
-                                            </div>
-                                            <div className="parrainText">
-                                                <span className="parrainNom">{p.nom}</span>
-                                                <div className="parrainBadges">
-                                                    <span
-                                                        className={`badge ${badgeClasse(p.moltaqa, moltaqaOk)}`}
-                                                    >
-                                                        Moltaqa{p.moltaqa && !moltaqaOk ? " (vide)" : ""}
+                                                <div className="parrainText">
+                                                    <span className="parrainNom">
+                                                        {
+                                                            fichier.nomParrain
+                                                        }
                                                     </span>
-                                                    <span className={`badge ${badgeClasse(p.social, socialOk)}`}>
-                                                        Social{p.social && !socialOk ? " (vide)" : ""}
-                                                    </span>
+
+                                                    <div className="parrainBadges">
+                                                        <span
+                                                            className={`badge ${
+                                                                disponible
+                                                                    ? "badgeOn"
+                                                                    : "badgeEmpty"
+                                                            }`}
+                                                        >
+                                                            {fichier.vide
+                                                                ? "Vide"
+                                                                : "Excel"}
+                                                        </span>
+
+                                                        <span className="fileName">
+                                                            {
+                                                                fichier.nomFichier
+                                                            }
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
+
+                                            <div className="parrainActions">
+                                                <button
+                                                    type="button"
+                                                    className={`actionBtn ${
+                                                        !disponible
+                                                            ? "actionBtnDisabled"
+                                                            : ""
+                                                    }`}
+                                                    disabled={
+                                                        !disponible
+                                                    }
+                                                    onClick={() =>
+                                                        disponible &&
+                                                        telechargerUnFichier(
+                                                            fichier.url,
+                                                            fichier.nomFichier
+                                                        )
+                                                    }
+                                                >
+                                                    <Download
+                                                        size={
+                                                            14
+                                                        }
+                                                        strokeWidth={
+                                                            2
+                                                        }
+                                                    />
+
+                                                    Télécharger
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    className="actionBtn actionBtnDanger"
+                                                    disabled={
+                                                        enSuppression
+                                                    }
+                                                    onClick={() =>
+                                                        handleSupprimer(
+                                                            fichier
+                                                        )
+                                                    }
+                                                    aria-label={`Supprimer ${fichier.nomFichier}`}
+                                                >
+                                                    {enSuppression ? (
+                                                        <Loader2
+                                                            size={
+                                                                14
+                                                            }
+                                                            strokeWidth={
+                                                                2
+                                                            }
+                                                            className="spin"
+                                                        />
+                                                    ) : (
+                                                        <Trash2
+                                                            size={
+                                                                14
+                                                            }
+                                                            strokeWidth={
+                                                                2
+                                                            }
+                                                        />
+                                                    )}
+                                                </button>
+                                            </div>
                                         </div>
-
-                                        <div className="parrainActions">
-                                            <button
-                                                type="button"
-                                                className={`actionBtn ${!moltaqaOk ? "actionBtnDisabled" : ""}`}
-                                                disabled={!moltaqaOk}
-                                                onClick={() =>
-                                                    moltaqaOk &&
-                                                    telechargerUnFichier(p.moltaqa.url, nomTelechargement(p.nom, "moltaqa"))
-                                                }
-                                            >
-                                                <Download size={14} strokeWidth={2} />
-                                                Moltaqa
-                                            </button>
-
-                                            <button
-                                                type="button"
-                                                className={`actionBtn ${!socialOk ? "actionBtnDisabled" : ""}`}
-                                                disabled={!socialOk}
-                                                onClick={() =>
-                                                    socialOk &&
-                                                    telechargerUnFichier(p.social.url, nomTelechargement(p.nom, "social"))
-                                                }
-                                            >
-                                                <Download size={14} strokeWidth={2} />
-                                                Social
-                                            </button>
-
-                                            <button
-                                                type="button"
-                                                className="actionBtn actionBtnPrimary"
-                                                disabled={nbDisponibles === 0}
-                                                onClick={() => telechargerPlusieurs(fichiersATelecharger)}
-                                            >
-                                                <Download size={14} strokeWidth={2} />
-                                                {libelleCombine}
-                                            </button>
-
-                                            <button
-                                                type="button"
-                                                className="actionBtn actionBtnDanger"
-                                                disabled={enSuppression}
-                                                onClick={() => handleSupprimer(p.nom)}
-                                                aria-label={`Supprimer ${p.nom}`}
-                                            >
-                                                {enSuppression ? (
-                                                    <Loader2 size={14} strokeWidth={2} className="spin" />
-                                                ) : (
-                                                    <Trash2 size={14} strokeWidth={2} />
-                                                )}
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                }
+                            )}
                         </div>
                     )}
                 </section>
@@ -770,7 +817,9 @@ export default function ExcelsPage({ parrains }) {
 
             {modaleOuverte && (
                 <ModaleAjout
-                    onClose={() => setModaleOuverte(false)}
+                    onClose={() =>
+                        setModaleOuverte(false)
+                    }
                     onSuccess={() => {
                         setModaleOuverte(false);
                         rafraichir();
@@ -779,367 +828,402 @@ export default function ExcelsPage({ parrains }) {
             )}
 
             <style jsx>{`
-        .page {
-          min-height: 100vh;
-          background: #f4f2ee;
-          padding: 56px 20px;
-          display: flex;
-          justify-content: center;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          color: #1e2124;
-        }
-        .sheet {
-          width: 100%;
-          max-width: 900px;
-          background: #ffffff;
-          border: 1px solid #e0ddd4;
-          border-radius: 4px;
-        }
+                .page {
+                    min-height: 100vh;
+                    background: #f4f2ee;
+                    padding: 56px 20px;
+                    display: flex;
+                    justify-content: center;
+                    font-family: -apple-system, BlinkMacSystemFont,
+                        "Segoe UI", Roboto, sans-serif;
+                    color: #1e2124;
+                }
 
-        /* ============ HEADER ============ */
+                .sheet {
+                    width: 100%;
+                    max-width: 900px;
+                    background: #ffffff;
+                    border: 1px solid #e0ddd4;
+                    border-radius: 4px;
+                }
 
-        .letterhead {
-          display: flex;
-          align-items: stretch;
-          border-bottom: 1px solid #e0ddd4;
-        }
-        .letterheadBar {
-          width: 6px;
-          background: #1f3a5f;
-          flex-shrink: 0;
-        }
-        .letterheadText {
-          padding: 30px 36px 26px;
-        }
-        .eyebrow {
-          font-size: 12px;
-          letter-spacing: 0.04em;
-          color: #96723a;
-          font-weight: 600;
-        }
-        .letterheadText h1 {
-          font-family: Georgia, "Times New Roman", serif;
-          font-size: 26px;
-          font-weight: 600;
-          margin: 6px 0 8px;
-          color: #16191c;
-        }
-        .letterheadText p {
-          margin: 0;
-          font-size: 14px;
-          color: #6b6459;
-        }
+                .letterhead {
+                    display: flex;
+                    align-items: stretch;
+                    border-bottom: 1px solid #e0ddd4;
+                }
 
-        /* ============ STATS ============ */
+                .letterheadBar {
+                    width: 6px;
+                    background: #1f3a5f;
+                    flex-shrink: 0;
+                }
 
-        .statsRow {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 1px;
-          background: #e0ddd4;
-          border-bottom: 1px solid #e0ddd4;
-        }
-        .statCard {
-          background: #fbfaf8;
-          padding: 16px 20px;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        .statValue {
-          font-family: Georgia, "Times New Roman", serif;
-          font-size: 22px;
-          font-weight: 600;
-          color: #1f3a5f;
-        }
-        .statLabel {
-          font-size: 11px;
-          font-weight: 600;
-          letter-spacing: 0.04em;
-          color: #8a8378;
-          text-transform: uppercase;
-        }
+                .letterheadText {
+                    padding: 30px 36px 26px;
+                }
 
-        /* ============ SEARCH ============ */
+                .eyebrow {
+                    font-size: 12px;
+                    letter-spacing: 0.04em;
+                    color: #96723a;
+                    font-weight: 600;
+                }
 
-        .searchSection {
-          padding: 24px 36px 0;
-        }
-        .searchRow {
-          display: flex;
-          gap: 10px;
-          align-items: stretch;
-        }
-        .searchBox {
-          position: relative;
-          display: flex;
-          align-items: center;
-          flex: 1;
-          min-width: 0;
-        }
-        .searchIcon {
-          position: absolute;
-          left: 12px;
-          color: #9a9488;
-          pointer-events: none;
-        }
-        .searchBox input {
-          width: 100%;
-          background: #fbfaf8;
-          border: 1px solid #d7d2c6;
-          color: #1e2124;
-          border-radius: 4px;
-          padding: 10px 12px 10px 36px;
-          font-size: 14px;
-          box-sizing: border-box;
-        }
-        .searchBox input:focus {
-          outline: none;
-          border-color: #1f3a5f;
-          box-shadow: 0 0 0 3px rgba(31, 58, 95, 0.12);
-        }
-        .addBtn {
-          white-space: nowrap;
-          flex-shrink: 0;
-        }
+                .letterheadText h1 {
+                    font-family: Georgia, "Times New Roman",
+                        serif;
+                    font-size: 26px;
+                    font-weight: 600;
+                    margin: 6px 0 8px;
+                    color: #16191c;
+                }
 
-        /* ============ LIST ============ */
+                .letterheadText p {
+                    margin: 0;
+                    font-size: 14px;
+                    color: #6b6459;
+                }
 
-        .listSection {
-          padding: 20px 36px 36px;
-        }
+                .statsRow {
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 1px;
+                    background: #e0ddd4;
+                    border-bottom: 1px solid #e0ddd4;
+                }
 
-        .empty {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 10px;
-          padding: 50px 20px;
-          color: #9a9488;
-          text-align: center;
-        }
-        .empty p {
-          margin: 0;
-          font-size: 14px;
-        }
+                .statCard {
+                    background: #fbfaf8;
+                    padding: 16px 20px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                }
 
-        .parrainList {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
+                .statValue {
+                    font-family: Georgia, "Times New Roman",
+                        serif;
+                    font-size: 22px;
+                    font-weight: 600;
+                    color: #1f3a5f;
+                }
 
-        .parrainCard {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-          padding: 14px 16px;
-          border: 1px solid #e0ddd4;
-          border-radius: 6px;
-          background: #fbfaf8;
-          flex-wrap: wrap;
-        }
+                .statLabel {
+                    font-size: 11px;
+                    font-weight: 600;
+                    letter-spacing: 0.04em;
+                    color: #8a8378;
+                    text-transform: uppercase;
+                }
 
-        .parrainInfo {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          min-width: 0;
-        }
+                .searchSection {
+                    padding: 24px 36px 0;
+                }
 
-        .parrainIcon {
-          width: 36px;
-          height: 36px;
-          min-width: 36px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: #ffffff;
-          border: 1px solid #e0ddd4;
-          border-radius: 6px;
-          color: #1f3a5f;
-        }
+                .searchRow {
+                    display: flex;
+                    gap: 10px;
+                    align-items: stretch;
+                }
 
-        .parrainText {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          min-width: 0;
-        }
+                .searchBox {
+                    position: relative;
+                    display: flex;
+                    align-items: center;
+                    flex: 1;
+                    min-width: 0;
+                }
 
-        .parrainNom {
-          font-size: 14px;
-          font-weight: 600;
-          color: #16191c;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
+                .searchBox input {
+                    width: 100%;
+                    background: #fbfaf8;
+                    border: 1px solid #d7d2c6;
+                    color: #1e2124;
+                    border-radius: 4px;
+                    padding: 10px 12px;
+                    font-size: 14px;
+                    box-sizing: border-box;
+                }
 
-        .parrainBadges {
-          display: flex;
-          gap: 6px;
-        }
+                .searchBox input:focus {
+                    outline: none;
+                    border-color: #1f3a5f;
+                    box-shadow: 0 0 0 3px
+                        rgba(31, 58, 95, 0.12);
+                }
 
-        .badge {
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: 0.03em;
-          padding: 2px 8px;
-          border-radius: 3px;
-          text-transform: uppercase;
-        }
-        .badgeOn {
-          background: #eef2f6;
-          color: #1f3a5f;
-        }
-        .badgeOff {
-          background: #f1efe9;
-          color: #b3ac9f;
-        }
-        .badgeEmpty {
-          background: #fbf1e4;
-          color: #a3742f;
-        }
+                .addBtn {
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                }
 
-        .parrainActions {
-          display: flex;
-          gap: 8px;
-          flex-shrink: 0;
-          flex-wrap: wrap;
-        }
+                .listSection {
+                    padding: 20px 36px 36px;
+                }
 
-        .actionBtn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          background: #ffffff;
-          border: 1px solid #d7d2c6;
-          color: #1f3a5f;
-          border-radius: 4px;
-          padding: 7px 12px;
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
-          text-decoration: none;
-          font-family: inherit;
-        }
-        .actionBtn:hover:not(.actionBtnDisabled):not(:disabled) {
-          background: #eef2f6;
-        }
-        .actionBtnDisabled {
-          color: #b3ac9f;
-          border-color: #e5e1d8;
-          cursor: not-allowed;
-          pointer-events: none;
-        }
-        .actionBtnPrimary {
-          background: #1f3a5f;
-          border-color: #1f3a5f;
-          color: #ffffff;
-        }
-        .actionBtnPrimary:hover:not(:disabled) {
-          background: #16293f !important;
-        }
-        .actionBtnPrimary:disabled {
-          background: #d7d2c6;
-          border-color: #d7d2c6;
-          color: #9a9488;
-          cursor: not-allowed;
-        }
-        .actionBtnDanger {
-          color: #b3261e;
-          border-color: #f0d3d1;
-          padding: 7px 9px;
-        }
-        .actionBtnDanger:hover:not(:disabled) {
-          background: #fdecea;
-        }
-        .actionBtnDanger:disabled {
-          color: #d9a8a4;
-          cursor: not-allowed;
-        }
-        .spin {
-          animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
-        }
+                .empty {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 50px 20px;
+                    color: #9a9488;
+                    text-align: center;
+                }
 
-        /* ============ RESPONSIVE ============ */
+                .empty p {
+                    margin: 0;
+                    font-size: 14px;
+                }
 
-        @media (max-width: 640px) {
-          .page {
-            padding: 24px 12px;
-          }
-          .letterheadText,
-          .searchSection,
-          .listSection {
-            padding-left: 20px;
-            padding-right: 20px;
-          }
-          .letterheadText {
-            padding-top: 22px;
-            padding-bottom: 20px;
-          }
-          .letterheadText h1 {
-            font-size: 21px;
-          }
-          .letterheadText p {
-            font-size: 13px;
-          }
-          .statsRow {
-            grid-template-columns: repeat(2, 1fr);
-          }
-          .statCard {
-            padding: 12px 14px;
-          }
-          .searchRow {
-            flex-direction: column;
-          }
-          .addBtn {
-            justify-content: center;
-          }
-          .parrainCard {
-            flex-direction: column;
-            align-items: stretch;
-          }
-          .parrainActions {
-            width: 100%;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-          }
-          .parrainActions .actionBtnPrimary {
-            grid-column: 1 / -1;
-          }
-          .parrainActions .actionBtnDanger {
-            grid-column: 1 / -1;
-          }
-          .actionBtn {
-            flex: 1;
-            width: 100%;
-          }
-        }
+                .parrainList {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                }
 
-        @media (max-width: 380px) {
-          .letterheadText h1 {
-            font-size: 19px;
-          }
-          .statValue {
-            font-size: 18px;
-          }
-          .statLabel {
-            font-size: 10px;
-          }
-        }
-      `}</style>
+                .parrainCard {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 16px;
+                    padding: 14px 16px;
+                    border: 1px solid #e0ddd4;
+                    border-radius: 6px;
+                    background: #fbfaf8;
+                    flex-wrap: wrap;
+                }
+
+                .parrainInfo {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    min-width: 0;
+                }
+
+                .parrainIcon {
+                    width: 36px;
+                    height: 36px;
+                    min-width: 36px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: #ffffff;
+                    border: 1px solid #e0ddd4;
+                    border-radius: 6px;
+                    color: #1f3a5f;
+                }
+
+                .parrainText {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                    min-width: 0;
+                }
+
+                .parrainNom {
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: #16191c;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .parrainBadges {
+                    display: flex;
+                    gap: 6px;
+                    align-items: center;
+                    min-width: 0;
+                }
+
+                .badge {
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.03em;
+                    padding: 2px 8px;
+                    border-radius: 3px;
+                    text-transform: uppercase;
+                }
+
+                .badgeOn {
+                    background: #eef2f6;
+                    color: #1f3a5f;
+                }
+
+                .badgeEmpty {
+                    background: #fbf1e4;
+                    color: #a3742f;
+                }
+
+                .fileName {
+                    font-size: 11px;
+                    color: #8a8378;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    max-width: 300px;
+                }
+
+                .parrainActions {
+                    display: flex;
+                    gap: 8px;
+                    flex-shrink: 0;
+                    flex-wrap: wrap;
+                }
+
+                .actionBtn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    background: #ffffff;
+                    border: 1px solid #d7d2c6;
+                    color: #1f3a5f;
+                    border-radius: 4px;
+                    padding: 7px 12px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    text-decoration: none;
+                    font-family: inherit;
+                }
+
+                .actionBtn:hover:not(
+                        .actionBtnDisabled
+                    ):not(:disabled) {
+                    background: #eef2f6;
+                }
+
+                .actionBtnDisabled {
+                    color: #b3ac9f;
+                    border-color: #e5e1d8;
+                    cursor: not-allowed;
+                    pointer-events: none;
+                }
+
+                .actionBtnPrimary {
+                    background: #1f3a5f;
+                    border-color: #1f3a5f;
+                    color: #ffffff;
+                }
+
+                .actionBtnPrimary:hover:not(:disabled) {
+                    background: #16293f !important;
+                }
+
+                .actionBtnDanger {
+                    color: #b3261e;
+                    border-color: #f0d3d1;
+                    padding: 7px 9px;
+                }
+
+                .actionBtnDanger:hover:not(:disabled) {
+                    background: #fdecea;
+                }
+
+                .actionBtnDanger:disabled {
+                    color: #d9a8a4;
+                    cursor: not-allowed;
+                }
+
+                .spin {
+                    animation: spin 0.8s linear infinite;
+                }
+
+                @keyframes spin {
+                    from {
+                        transform: rotate(0deg);
+                    }
+
+                    to {
+                        transform: rotate(360deg);
+                    }
+                }
+
+                @media (max-width: 640px) {
+                    .page {
+                        padding: 24px 12px;
+                    }
+
+                    .letterheadText,
+                    .searchSection,
+                    .listSection {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                    }
+
+                    .letterheadText {
+                        padding-top: 22px;
+                        padding-bottom: 20px;
+                    }
+
+                    .letterheadText h1 {
+                        font-size: 21px;
+                    }
+
+                    .letterheadText p {
+                        font-size: 13px;
+                    }
+
+                    .statsRow {
+                        grid-template-columns: repeat(
+                            2,
+                            1fr
+                        );
+                    }
+
+                    .statCard {
+                        padding: 12px 14px;
+                    }
+
+                    .statCard:last-child {
+                        grid-column: 1 / -1;
+                    }
+
+                    .searchRow {
+                        flex-direction: column;
+                    }
+
+                    .addBtn {
+                        justify-content: center;
+                    }
+
+                    .parrainCard {
+                        flex-direction: column;
+                        align-items: stretch;
+                    }
+
+                    .parrainActions {
+                        width: 100%;
+                        display: grid;
+                        grid-template-columns: 1fr auto;
+                    }
+
+                    .actionBtn {
+                        width: 100%;
+                    }
+
+                    .fileName {
+                        max-width: 180px;
+                    }
+                }
+
+                @media (max-width: 380px) {
+                    .letterheadText h1 {
+                        font-size: 19px;
+                    }
+
+                    .statValue {
+                        font-size: 18px;
+                    }
+
+                    .statLabel {
+                        font-size: 10px;
+                    }
+                }
+            `}</style>
         </div>
     );
 }
