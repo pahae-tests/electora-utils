@@ -529,6 +529,7 @@ export default function ExcelsPage({ fichiersExcel }) {
     }
 
     async function handleSupprimer(fichier) {
+        alert('mzl madrtha') return
         const confirme = window.confirm(
             `Supprimer définitivement le fichier "${fichier.nomFichier}" ?`
         );
