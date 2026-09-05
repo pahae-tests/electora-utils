@@ -529,7 +529,8 @@ export default function ExcelsPage({ fichiersExcel }) {
     }
 
     async function handleSupprimer(fichier) {
-        alert('zga') return
+        alert('zga'); return;
+        
         const confirme = window.confirm(
             `Supprimer définitivement le fichier "${fichier.nomFichier}" ?`
         );
