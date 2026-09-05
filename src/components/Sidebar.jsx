@@ -49,7 +49,7 @@ const menuItems = [
     },
     {
         name: "Excels",
-        description: "Télécharge excel Moltaqa et excel Social pour chaque parrain",
+        description: "Télécharge un excel pour chaque parrain",
         href: "/excels",
         icon: FileSpreadsheet,
     },
