@@ -651,6 +651,7 @@ export default function ExcelsPage({ fichiersExcel }) {
 
                         <button
                             type="button"
+                            disabled
                             className="actionBtn actionBtnPrimary addBtn"
                             onClick={() =>
                                 setModaleOuverte(true)
@@ -773,6 +774,7 @@ export default function ExcelsPage({ fichiersExcel }) {
 
                                                 <button
                                                     type="button"
+                                                    disabled
                                                     className="actionBtn actionBtnDanger"
                                                     disabled={
                                                         enSuppression
