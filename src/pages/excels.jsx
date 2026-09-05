@@ -132,330 +132,175 @@ async function telechargerUnFichier(url, nomFichier) {
 // MODALE D'AJOUT D'UN FICHIER
 // =========================================================
 
-function ZoneDepot({ titre, fichiers, onFichiers, onRetirer, accentColor = "#1f3a5f" }) {
-    const [survole, setSurvole] = useState(false);
-    const inputId = `input-${titre.replace(/\s+/g, "-").toLowerCase()}`;
-
-    function ajouterFichiers(liste) {
-        const nouveaux = Array.from(liste || []).filter((f) =>
-            /\.xlsx?$/i.test(f.name)
-        );
-        if (nouveaux.length > 0) onFichiers(nouveaux);
-    }
-
-    return (
-        <div className="zoneWrapper">
-            <div className="zoneHeader">
-                <span className="zoneTitre">{titre}</span>
-                {fichiers.length > 0 && (
-                    <span className="zoneCompteur">{fichiers.length}</span>
-                )}
-            </div>
-
-            <label
-                htmlFor={inputId}
-                className={`zoneDrop ${survole ? "zoneDropActive" : ""}`}
-                onDragOver={(e) => {
-                    e.preventDefault();
-                    setSurvole(true);
-                }}
-                onDragLeave={() => setSurvole(false)}
-                onDrop={(e) => {
-                    e.preventDefault();
-                    setSurvole(false);
-                    ajouterFichiers(e.dataTransfer.files);
-                }}
-            >
-                <FileSpreadsheet size={22} strokeWidth={1.5} />
-                <span className="zoneDropTexte">
-                    Glissez vos fichiers ici ou{" "}
-                    <span className="zoneDropLien">parcourir</span>
-                </span>
-                <span className="zoneDropSousTexte">.xlsx, .xls — plusieurs fichiers acceptés</span>
-
-                <input
-                    id={inputId}
-                    type="file"
-                    accept=".xlsx,.xls"
-                    multiple
-                    onChange={(e) => {
-                        ajouterFichiers(e.target.files);
-                        e.target.value = "";
-                    }}
-                    hidden
-                />
-            </label>
-
-            {fichiers.length > 0 && (
-                <div className="zoneFichiers">
-                    {fichiers.map((f, idx) => (
-                        <div className="zoneFichier" key={`${f.name}-${idx}`}>
-                            <FileSpreadsheet size={13} strokeWidth={2} />
-                            <span className="zoneFichierNom">{f.name}</span>
-                            <button
-                                type="button"
-                                className="zoneFichierRetirer"
-                                onClick={() => onRetirer(idx)}
-                                aria-label={`Retirer ${f.name}`}
-                            >
-                                <X size={12} strokeWidth={2.5} />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            <style jsx>{`
-                .zoneWrapper {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 10px;
-                }
-
-                .zoneHeader {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                }
-
-                .zoneTitre {
-                    font-size: 12px;
-                    font-weight: 700;
-                    letter-spacing: 0.04em;
-                    text-transform: uppercase;
-                    color: #6b6459;
-                }
-
-                .zoneCompteur {
-                    font-size: 11px;
-                    font-weight: 700;
-                    color: ${accentColor};
-                    background: #eef2f6;
-                    padding: 1px 7px;
-                    border-radius: 10px;
-                }
-
-                .zoneDrop {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 6px;
-                    text-align: center;
-                    border: 1.5px dashed #d7d2c6;
-                    border-radius: 8px;
-                    background: #fbfaf8;
-                    padding: 24px 16px;
-                    cursor: pointer;
-                    color: #8a8378;
-                    transition: border-color 0.15s ease, background 0.15s ease;
-                }
-
-                .zoneDrop:hover,
-                .zoneDropActive {
-                    border-color: ${accentColor};
-                    background: #f2f5f8;
-                    color: ${accentColor};
-                }
-
-                .zoneDropTexte {
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: #16191c;
-                }
-
-                .zoneDropLien {
-                    color: ${accentColor};
-                    font-weight: 700;
-                    text-decoration: underline;
-                }
-
-                .zoneDropSousTexte {
-                    font-size: 11px;
-                    color: #a39c8f;
-                }
-
-                .zoneFichiers {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 5px;
-                    max-height: 140px;
-                    overflow-y: auto;
-                    padding-right: 2px;
-                }
-
-                .zoneFichier {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    padding: 6px 8px;
-                    background: #ffffff;
-                    border: 1px solid #e5e1d8;
-                    border-radius: 5px;
-                    font-size: 12px;
-                    color: #1e2124;
-                }
-
-                .zoneFichier svg:first-child {
-                    flex-shrink: 0;
-                    color: ${accentColor};
-                }
-
-                .zoneFichierNom {
-                    flex: 1;
-                    min-width: 0;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-
-                .zoneFichierRetirer {
-                    flex-shrink: 0;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    width: 18px;
-                    height: 18px;
-                    border-radius: 50%;
-                    border: none;
-                    background: #f4f2ee;
-                    color: #8a8378;
-                    cursor: pointer;
-                }
-
-                .zoneFichierRetirer:hover {
-                    background: #fdecea;
-                    color: #b3261e;
-                }
-            `}</style>
-        </div>
-    );
-}
-
 function ModaleAjout({ onClose, onSuccess }) {
-    const [fichiersMoltaqa, setFichiersMoltaqa] = useState([]);
-    const [fichiersSocial, setFichiersSocial] = useState([]);
+    const [fichier, setFichier] = useState(null);
     const [envoiEnCours, setEnvoiEnCours] = useState(false);
     const [erreur, setErreur] = useState("");
-
-    const totalFichiers = fichiersMoltaqa.length + fichiersSocial.length;
-
-    async function fichierEnBase64(fichier) {
-        const reader = new FileReader();
-        const resultat = await new Promise((resolve, reject) => {
-            reader.onload = () => resolve(String(reader.result || ""));
-            reader.onerror = () =>
-                reject(new Error(`Impossible de lire ${fichier.name}.`));
-            reader.readAsDataURL(fichier);
-        });
-        return { nomFichier: fichier.name, data: resultat.split(",")[1] || "" };
-    }
 
     async function handleSubmit(e) {
         e.preventDefault();
         setErreur("");
 
-        if (totalFichiers === 0) {
-            setErreur("Sélectionnez au moins un fichier Excel.");
+        if (!fichier) {
+            setErreur("Sélectionnez un fichier Excel.");
             return;
         }
 
         setEnvoiEnCours(true);
 
         try {
-            const [moltaqa, social] = await Promise.all([
-                Promise.all(fichiersMoltaqa.map(fichierEnBase64)),
-                Promise.all(fichiersSocial.map(fichierEnBase64)),
-            ]);
+            const reader = new FileReader();
+
+            const dataBase64 = await new Promise((resolve, reject) => {
+                reader.onload = () => {
+                    const resultat = String(reader.result || "");
+                    resolve(resultat.split(",")[1] || "");
+                };
+
+                reader.onerror = () => {
+                    reject(
+                        new Error("Impossible de lire le fichier.")
+                    );
+                };
+
+                reader.readAsDataURL(fichier);
+            });
+
+            const payload = {
+                fichiers: [
+                    {
+                        nomFichier: fichier.name,
+                        data: dataBase64,
+                    },
+                ],
+            };
 
             const res = await fetch("/api/excels/add", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ moltaqa, social }),
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
             });
 
             const data = await res.json().catch(() => ({}));
 
             if (!res.ok) {
-                throw new Error(data.error || "Une erreur est survenue.");
+                throw new Error(
+                    data.error || "Une erreur est survenue."
+                );
             }
 
             onSuccess();
         } catch (err) {
-            setErreur(err.message || "Une erreur est survenue.");
+            setErreur(
+                err.message ||
+                    "Une erreur est survenue."
+            );
         } finally {
             setEnvoiEnCours(false);
         }
     }
 
     return (
-        <div className="modalOverlay" onClick={onClose}>
-            <div className="modalBox" onClick={(e) => e.stopPropagation()}>
+        <div
+            className="modalOverlay"
+            onClick={onClose}
+        >
+            <div
+                className="modalBox"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <div className="modalHeader">
-                    <div>
-                        <h2>Ajouter des fichiers Excel</h2>
-                        <p className="modalSousTitre">
-                            Déposez un ou plusieurs fichiers par catégorie
-                        </p>
-                    </div>
-                    <button type="button" className="modalClose" onClick={onClose} aria-label="Fermer">
-                        <X size={18} strokeWidth={2} />
+                    <h2>Ajouter un fichier Excel</h2>
+
+                    <button
+                        type="button"
+                        className="modalClose"
+                        onClick={onClose}
+                        aria-label="Fermer"
+                    >
+                        <X
+                            size={18}
+                            strokeWidth={2}
+                        />
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="modalForm">
-                    <div className="zonesGrid">
-                        <ZoneDepot
-                            titre="Moltaqa"
-                            fichiers={fichiersMoltaqa}
-                            onFichiers={(nouveaux) =>
-                                setFichiersMoltaqa((prev) => [...prev, ...nouveaux])
+                <form
+                    onSubmit={handleSubmit}
+                    className="modalForm"
+                >
+                    <label className="fieldLabel">
+                        Fichier Excel
+
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls"
+                            onChange={(e) =>
+                                setFichier(
+                                    e.target.files?.[0] || null
+                                )
                             }
-                            onRetirer={(idx) =>
-                                setFichiersMoltaqa((prev) => prev.filter((_, i) => i !== idx))
-                            }
-                            accentColor="#1f3a5f"
                         />
 
-                        <ZoneDepot
-                            titre="Social"
-                            fichiers={fichiersSocial}
-                            onFichiers={(nouveaux) =>
-                                setFichiersSocial((prev) => [...prev, ...nouveaux])
-                            }
-                            onRetirer={(idx) =>
-                                setFichiersSocial((prev) => prev.filter((_, i) => i !== idx))
-                            }
-                            accentColor="#96723a"
-                        />
-                    </div>
+                        {fichier && (
+                            <div className="selectedFiles">
+                                <div className="selectedFile">
+                                    <FileSpreadsheet
+                                        size={14}
+                                    />
 
-                    {erreur && <p className="modalErreur">{erreur}</p>}
+                                    <span>
+                                        {fichier.name}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                    </label>
+
+                    <p className="modalHint">
+                        Le nom du fichier sera utilisé comme nom du parrain.
+                    </p>
+
+                    {erreur && (
+                        <p className="modalErreur">
+                            {erreur}
+                        </p>
+                    )}
 
                     <div className="modalActions">
-                        <span className="modalTotal">
-                            {totalFichiers > 0
-                                ? `${totalFichiers} fichier${totalFichiers > 1 ? "s" : ""} prêt${totalFichiers > 1 ? "s" : ""}`
-                                : ""}
-                        </span>
+                        <button
+                            type="button"
+                            className="actionBtn"
+                            onClick={onClose}
+                            disabled={envoiEnCours}
+                        >
+                            Annuler
+                        </button>
 
-                        <div className="modalBoutons">
-                            <button type="button" className="actionBtn" onClick={onClose} disabled={envoiEnCours}>
-                                Annuler
-                            </button>
-                            <button
-                                type="submit"
-                                className="actionBtn actionBtnPrimary"
-                                disabled={envoiEnCours || totalFichiers === 0}
-                            >
-                                {envoiEnCours ? (
-                                    <Loader2 size={14} strokeWidth={2} className="spin" />
-                                ) : (
-                                    <Plus size={14} strokeWidth={2} />
-                                )}
-                                {envoiEnCours ? "Ajout..." : "Ajouter"}
-                            </button>
-                        </div>
+                        <button
+                            type="submit"
+                            className="actionBtn actionBtnPrimary"
+                            disabled={envoiEnCours}
+                        >
+                            {envoiEnCours ? (
+                                <Loader2
+                                    size={14}
+                                    strokeWidth={2}
+                                    className="spin"
+                                />
+                            ) : (
+                                <Plus
+                                    size={14}
+                                    strokeWidth={2}
+                                />
+                            )}
+
+                            {envoiEnCours
+                                ? "Ajout..."
+                                : "Ajouter le fichier"}
+                        </button>
                     </div>
                 </form>
             </div>
@@ -464,8 +309,7 @@ function ModaleAjout({ onClose, onSuccess }) {
                 .modalOverlay {
                     position: fixed;
                     inset: 0;
-                    background: rgba(22, 25, 28, 0.5);
-                    backdrop-filter: blur(2px);
+                    background: rgba(22, 25, 28, 0.45);
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -475,34 +319,27 @@ function ModaleAjout({ onClose, onSuccess }) {
 
                 .modalBox {
                     width: 100%;
-                    max-width: 640px;
+                    max-width: 520px;
                     background: #ffffff;
-                    border-radius: 10px;
+                    border-radius: 8px;
                     border: 1px solid #e0ddd4;
                     max-height: 90vh;
                     overflow-y: auto;
-                    box-shadow: 0 20px 60px rgba(22, 25, 28, 0.18);
                 }
 
                 .modalHeader {
                     display: flex;
-                    align-items: flex-start;
+                    align-items: center;
                     justify-content: space-between;
-                    padding: 22px 24px 18px;
+                    padding: 18px 20px;
                     border-bottom: 1px solid #e0ddd4;
                 }
 
                 .modalHeader h2 {
                     margin: 0;
                     font-family: Georgia, "Times New Roman", serif;
-                    font-size: 19px;
+                    font-size: 18px;
                     color: #16191c;
-                }
-
-                .modalSousTitre {
-                    margin: 5px 0 0;
-                    font-size: 13px;
-                    color: #8a8378;
                 }
 
                 .modalClose {
@@ -512,24 +349,72 @@ function ModaleAjout({ onClose, onSuccess }) {
                     cursor: pointer;
                     padding: 4px;
                     display: flex;
-                    border-radius: 4px;
-                }
-
-                .modalClose:hover {
-                    background: #f4f2ee;
                 }
 
                 .modalForm {
-                    padding: 24px;
+                    padding: 20px;
                     display: flex;
                     flex-direction: column;
-                    gap: 20px;
+                    gap: 18px;
                 }
 
-                .zonesGrid {
-                    display: grid;
-                    grid-template-columns: 1fr 1fr;
-                    gap: 16px;
+                .fieldLabel {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: #6b6459;
+                    text-transform: uppercase;
+                    letter-spacing: 0.03em;
+                }
+
+                .fieldLabel input[type="file"] {
+                    font-size: 12px;
+                    font-weight: 400;
+                    text-transform: none;
+                    letter-spacing: normal;
+                    color: #6b6459;
+                }
+
+                .selectedFiles {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 5px;
+                    padding: 8px;
+                    background: #fbfaf8;
+                    border: 1px solid #e0ddd4;
+                    border-radius: 4px;
+                }
+
+                .selectedFile {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 6px 8px;
+                    background: #ffffff;
+                    border: 1px solid #e5e1d8;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    color: #1e2124;
+                }
+
+                .selectedFile svg {
+                    flex-shrink: 0;
+                    color: #1f3a5f;
+                }
+
+                .selectedFile span {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+
+                .modalHint {
+                    margin: 0;
+                    font-size: 12px;
+                    line-height: 1.5;
+                    color: #8a8378;
                 }
 
                 .modalErreur {
@@ -544,23 +429,9 @@ function ModaleAjout({ onClose, onSuccess }) {
 
                 .modalActions {
                     display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 12px;
-                    padding-top: 4px;
-                    border-top: 1px solid #efece5;
-                }
-
-                .modalTotal {
-                    font-size: 12px;
-                    color: #8a8378;
-                    font-weight: 600;
-                }
-
-                .modalBoutons {
-                    display: flex;
+                    justify-content: flex-end;
                     gap: 8px;
-                    margin-left: auto;
+                    margin-top: 4px;
                 }
 
                 .actionBtn {
@@ -571,11 +442,12 @@ function ModaleAjout({ onClose, onSuccess }) {
                     background: #ffffff;
                     border: 1px solid #d7d2c6;
                     color: #1f3a5f;
-                    border-radius: 5px;
-                    padding: 8px 14px;
+                    border-radius: 4px;
+                    padding: 7px 12px;
                     font-size: 12px;
                     font-weight: 600;
                     cursor: pointer;
+                    text-decoration: none;
                     font-family: inherit;
                 }
 
@@ -594,7 +466,7 @@ function ModaleAjout({ onClose, onSuccess }) {
                 }
 
                 .actionBtn:disabled {
-                    opacity: 0.55;
+                    opacity: 0.6;
                     cursor: not-allowed;
                 }
 
@@ -603,26 +475,12 @@ function ModaleAjout({ onClose, onSuccess }) {
                 }
 
                 @keyframes spin {
-                    from { transform: rotate(0deg); }
-                    to { transform: rotate(360deg); }
-                }
-
-                @media (max-width: 560px) {
-                    .zonesGrid {
-                        grid-template-columns: 1fr;
+                    from {
+                        transform: rotate(0deg);
                     }
 
-                    .modalActions {
-                        flex-direction: column;
-                        align-items: stretch;
-                    }
-
-                    .modalBoutons {
-                        margin-left: 0;
-                    }
-
-                    .actionBtn {
-                        flex: 1;
+                    to {
+                        transform: rotate(360deg);
                     }
                 }
             `}</style>
