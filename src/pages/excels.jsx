@@ -652,7 +652,7 @@ export default function ExcelsPage({ fichiersExcel }) {
                         <button
                             type="button"
                             disabled
-                            className="actionBtn actionBtnPrimary addBtn"
+                            className="actionBtn actionBtnPrimary addBtn disabled"
                             onClick={() =>
                                 setModaleOuverte(true)
                             }
@@ -775,7 +775,7 @@ export default function ExcelsPage({ fichiersExcel }) {
                                                 <button
                                                     type="button"
                                                     disabled
-                                                    className="actionBtn actionBtnDanger"
+                                                    className="actionBtn actionBtnDanger disabled"
                                                     disabled={
                                                         enSuppression
                                                     }
@@ -1210,6 +1210,10 @@ export default function ExcelsPage({ fichiersExcel }) {
                     .fileName {
                         max-width: 180px;
                     }
+                }
+
+                .disabled {
+                    cursor: not-allowed;
                 }
 
                 @media (max-width: 380px) {
