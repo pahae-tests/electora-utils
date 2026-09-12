@@ -24,12 +24,12 @@ const menuItems = [
         href: "/fetch",
         icon: RefreshCw,
     },
-    {
-        name: "Finals",
-        description: "Espace de partage du travail final sur les excels",
-        href: "/finals",
-        icon: FileCheck2,
-    },
+    // {
+    //     name: "Finals",
+    //     description: "Espace de partage du travail final sur les excels",
+    //     href: "/finals",
+    //     icon: FileCheck2,
+    // },
     {
         name: "Count",
         description: "Statistiques pour un parrain",
