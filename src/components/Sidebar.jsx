@@ -5,6 +5,7 @@ import {
     Search,
     RefreshCw,
     BarChart3,
+    FileCheck2,
     Users,
     ShieldCheck,
     ChevronRight,
@@ -22,6 +23,12 @@ const menuItems = [
         description: "Recherche intelligente dans les données de Electora",
         href: "/fetch",
         icon: RefreshCw,
+    },
+    {
+        name: "Finals",
+        description: "Espace de partage du travail final sur les excels",
+        href: "/finals",
+        icon: FileCheck2,
     },
     {
         name: "Count",
